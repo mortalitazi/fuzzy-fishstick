@@ -1,0 +1,2019 @@
+extends Control
+
+@onready var displayed_message = $VBoxContainer/RichTextLabel
+@onready var user_input = $VBoxContainer/LineEdit
+@onready var enter_button = $VBoxContainer/Button
+
+var game_state = GameState.START # stores ENUM
+var round_number = 1 # +1 for each win; three rounds then boss
+var boss_number = 0 # starts at 0, increase by 1 for each boss generated and beaten
+
+var deck = [] # update based on what's in hand, what is discarded, what is played
+var discard_pile = [] # to allow the player to request to see what was already discarded or played
+var player_hand = [] # base value
+var player_hand_size = 8 # as a variable for changing via bosses or whatnot
+
+var displayed_hand = [] # the ranked and sorted hand
+var selected_cards = [] # used in discard and play functions
+var scored_cards = [] # stores only cards used in scoring; cleared after score finishes calculating
+
+
+enum GameState {
+	START,
+	PLAYING,
+	WIN,
+	LOSE,
+	HUB,
+	CIPHERS_HUB,
+	BOSS,
+	END
+}
+
+# hand specific data dictionaries
+
+enum HandType {
+	FLUSH,
+	FIVE_OF_A_KIND,
+	FLUSH_FIVE, # a full hand of the same rank and suit
+	FOUR_OF_A_KIND,
+	FLUSH_FOUR, # any four a kind all of the same suit
+	THE_THREE, # hand of paladins of baezel, odessa, and godrik
+	THREE_OF_A_KIND,
+	PAIR,
+	HIGH_CARD,
+	TWO_PAIR,
+	FULL_HOUSE,
+	FLUSH_HOUSE, # hand only for flush full house of dragons
+	BAEZELS_HOUSE, # flush full house of baezel
+	ODESSAS_HOUSE, # flush full house of odessa
+	GODRIKS_HOUSE, # flush full house of godrik
+	STRAIGHT,
+	STRAIGHT_FLUSH,
+	ROYAL_FLUSH # standard poker rules of paladin to ten straight flush
+}
+var hand_data = {
+	HandType.ROYAL_FLUSH: {
+		"name" : "Royal Flush",
+		"description" : "Royal Flush: A straight of all the same suit consisting of a Paladin, a King, a Queen, a Templar, and a ten.",
+		"level" : 1,
+		"base score" : 1000,
+		"times played": 0
+	},
+	HandType.STRAIGHT_FLUSH: {
+		"name" : "Straight Flush",
+		"description" : "Straight Flush: A straight of any but royal of all the same suit.",
+		"level" : 1,
+		"base score" : 800,
+		"times played": 0
+	},
+	HandType.FIVE_OF_A_KIND: {
+		"name" : "Five of a Kind",
+		"description" : "Five of a Kind: Five cards of the same rank.",
+		"level" : 1,
+		"base score" : 700,
+		"times played": 0
+	},
+	HandType.FLUSH_FIVE: {
+		"name" : "Flush Five",
+		"description" : "Flush Five: Five cards of the same rank and suit.",
+		"level" : 1,
+		"base score" : 750,
+		"times played": 0
+	},
+	HandType.FOUR_OF_A_KIND: {
+		"name" : "Four of a Kind",
+		"description" : "Four of a Kind: Four cards of the same rank.",
+		"level" : 1,
+		"base score" : 600,
+		"times played": 0
+	},
+	HandType.FLUSH_FOUR: {
+		"name" : "Flush Four",
+		"description" : "Flush Four: Four cards of the same rank and suit",
+		"level" : 1,
+		"base score" : 650,
+		"times played": 0
+	},
+	HandType.FULL_HOUSE: {
+		"name" : "Full House",
+		"description" : "Full House: A hand consisting of one Two Pair and one Three of a Kind.",
+		"level" : 1,
+		"base score" : 350,
+		"times played": 0
+	},
+	HandType.FLUSH_HOUSE: {
+		"name" : "Flush House",
+		"description" : "Flush House: A Full House of all the same suit.",
+		"level" : 1,
+		"base score" : 400,
+		"times played": 0
+	},
+	HandType.BAEZELS_HOUSE: {
+		"name" : "Baezel's House",
+		"description" : "Baezel's House: A Flush House consisting only of Baezel's suit.",
+		"level" : 1,
+		"base score" : 450,
+		"times played": 0
+	},
+	HandType.ODESSAS_HOUSE: {
+		"name" : "Odessa's House",
+		"description" : "Odessa's House: A Flush House consisting only of Odessa's suit.",
+		"level" : 1,
+		"base score" : 450,
+		"times played": 0
+	},
+	HandType.GODRIKS_HOUSE: {
+		"name" : "Godrik's House",
+		"description" : "Godrik's House: A Flush House consisting only of Godrink's suit.",
+		"level" : 1,
+		"base score" : 450,
+		"times played": 0
+	},
+	HandType.THE_THREE: {
+		"name" : "The Three",
+		"description" : "The Three: A Three of a Kind of Paladins, one from each of the Dragon Gods: Baezel, Godrik, and Odessa.",
+		"level" : 1,
+		"base score" : 4000,
+		"times played": 0
+	},
+	HandType.THREE_OF_A_KIND: {
+		"name" : "Three of a Kind",
+		"description" : "Three of a Kind: Three cards of the same rank.",
+		"level" : 1,
+		"base score" : 200,
+		"times played": 0
+	},
+	HandType.TWO_PAIR: {
+		"name" : "Two Pair",
+		"description" : "Two Pair: Two sets of pairs.",
+		"level" : 1,
+		"base score" : 100,
+		"times played": 0
+	},
+	HandType.PAIR: {
+		"name" : "Pair",
+		"description" : "Pair: Two cards of the same rank.",
+		"level" : 1,
+		"base score" : 50,
+		"times played": 0
+	},
+	HandType.FLUSH: {
+		"name" : "Flush",
+		"description" : "Flush: Five cards of the same suit.",
+		"level" : 1,
+		"base score" : 150,
+		"times played": 0
+	},
+	HandType.STRAIGHT: {
+		"name" : "Straight",
+		"description" : "Straight: A full hand of cards in sequential order.",
+		"level" : 1,
+		"base score" : 120,
+		"times played": 0
+	},
+	HandType.HIGH_CARD: {
+		"name" : "High Card",
+		"description" : "High Card: A single card.",
+		"level" : 1,
+		"base score" : 20,
+		"times played": 0
+	}
+}
+
+# player variables
+
+var username = null # player's username
+var username_inputs = 0 # used in username entry in case of errors or null inputs
+var baby_mode = false # a variable for setting the rounds on easy mode. after a set number of wins, turn it back to false
+var dick_mode = false # a variable for making the game harder
+
+var prompt = null # used in process_input
+
+# round variables
+	
+var score = 0
+var spider_score = 0 # for adding to chips from spiders
+var spider_multiplier = 1 # for adding to mult from spiders
+var hands = 4 # can change based on boss, spiders
+var discards = 2 # can change based on boss, spiders
+
+
+#update with new commands
+var commands = {
+	"Discard [card number]" : "Discards a card from your hand.",
+	"Play [card number]" : "Plays your selected card.",
+	"Help" : "Displays this list of commands.",
+	"Play [card numbers separated by a space up to 5 total]" : "Plays a hand with the cards selected.",
+	"Discard [card numbers separated by a space up to 5 total]" : "Discards the selected cards. If you have cards left in your deck, you'll draw the same number of new cards as discarded.",
+	"Discard pile" : "Displays what cards are currently in your discard pile, if any.",
+	"Deck" : "Displays what cards are currently in your deck, if any.",
+	"Hand" : "Displays your currently drawn hand."
+	# add in commands to see comsumables, credits, running spiders, etc
+}
+
+var credits = 0 # you start with NOTHING
+
+var consumables = [] # placeholder
+	# spiders, daemons, general hacks
+	# append and erase from array upon acquiring and use/sell
+	
+var player_daemons = [] # for persistent/permanent daemons (reusable or always on)
+var player_spiders = [] # for all player-held spiders
+
+enum TriggerPhase {   # for making sure spiders trigger in the correct order
+	PRE_SCORE = 1,
+	DURING_SCORE = 2,
+	POST_SCORE = 3,
+	ROUND_START = 4,
+	ROUND_FINISH = 5,
+	HUB_ENTER = 6,
+	HUB_EXIT = 7,
+	BOSS_ROUND = 8
+}
+
+#create dictionaries for vendors, bosses, etc
+#create dictionaries for daemons, spiders, etc
+
+var daemons = {
+	"placeholder": {
+		"description": "blahblahblah", # basic title to be displayed
+		"extended description": "yadayadayada", # more detail on what it does
+		"command": "/placeholder", #what command to look for to execute daemon
+		"rarity": "common", #"uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # if they're only from rewards, false
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 0, # for buying, selling, trading
+		"stackable": true, # can the player have more than one in inventory
+		"max quantity": 2, 
+		"reusable": true, # default to allow for multiple uses if player has more than one copy; daemons are one-time use but special ones from Nell or Cerberus might be reusable and stay in inventory
+		"delete after use": true, #default; false only in very specific cases
+		"use_limit": 1, # if a limit is required per game; higher rarities?
+		"uses": 0, #for tracking how many times it was used; if over 1 and reusable = false, return error/disallow player to acquire
+		"target": "player", # specify who or what the daemon targets upon use. ex: player hand, deck, discards, boss, etc.
+		"extended use cases": [], # if special daemons can be used in multiple ways
+		"effect": func(game):
+			pass #logic goes here
+			},
+		"Vashii'q": {
+		"description": "://vashiiq.dae", # basic title to be displayed
+		"extended description": "Vashii'q levels up a random hand type by one.", # more detail on what it does
+		"command": "/vashiiq.dae", #what command to look for to execute daemon
+		"rarity": "common", #"uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # if they're only from rewards, false
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 20, # for buying, selling, trading
+		"stackable": true, # can the player have more than one in inventory
+		"max quantity": 5, 
+		"reusable": true, # default to allow for multiple uses if player has more than one copy; daemons are one-time use but special ones from Nell or Cerberus might be reusable and stay in inventory
+		"delete after use": true, #default; false only in very specific cases
+		"use_limit": 50, # if a limit is required per game; higher rarities?
+		"uses": 0, #for tracking how many times it was used; if over 1 and reusable = false, return error/disallow player to acquire
+		"target": "hand levels", # specify who or what the daemon targets upon use. ex: player hand, deck, discards, boss, etc.
+		"extended use cases": [], # if special daemons can be used in multiple ways
+		"effect": func(game):
+			var hand_types = game.hand_types.keys()
+			if hand_types.size() > 0:
+				var random_hand_type_name = hand_types[randi() % hand_types.size()]
+				game.hand_data[random_hand_type_name]["level"] += 1
+				game.display_message("Levelled up " + random_hand_type_name + "! \n")
+			else:
+				game.display_message("ERROR: NO HAND TYPES TO LEVEL UP.")
+			},
+		"Bless": {
+		"description": "://bless.dae", # basic title to be displayed
+		"extended description": "Use this code to bless a card with extra chips to add to your score. Use command /bless.dae and add the card number. Example: [/bless.dae 2] \n", # more detail on what it does
+		"command": "/bless.dae", #what command to look for to execute daemon
+		"rarity": "common", #"uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # if they're only from rewards, false
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 25, # for buying, selling, trading
+		"stackable": true, # can the player have more than one in inventory
+		"max quantity": 10, 
+		"reusable": true, # default to allow for multiple uses if player has more than one copy; daemons are one-time use but special ones from Nell or Cerberus might be reusable and stay in inventory
+		"delete after use": true, #default; false only in very specific cases
+		"use_limit": 100, # if a limit is required per game; higher rarities?
+		"uses": 0, #for tracking how many times it was used; if over 1 and reusable = false, return error/disallow player to acquire
+		"target": "card", # specify who or what the daemon targets upon use. ex: player hand, deck, discards, boss, etc.
+		"extended use cases": [], # if special daemons can be used in multiple ways
+		"effect": func(game):
+			var card_to_upgrade = int(game.prompt) - 1
+			var player_hand = game.displayed_hand
+			var upgraded_card = null
+			
+			if player_hand.size() > 0: # so they can't use it outside of the round
+				if card_to_upgrade >= 0 and card_to_upgrade < player_hand.size():
+					upgraded_card = player_hand[card_to_upgrade]
+					upgraded_card["chip value"] += 20
+					game.display_message("Daemon executed successfully! \n")
+					game.display_message("Selected card now offers " + str(upgraded_card["chip value"]) + " to your score. \n")
+				else: 
+					game.display_message("Invalid card number. \n")
+			else:
+				game.display_message("No cards in hand.\n")
+			}
+	
+}
+
+var spiders = {
+	"placeholder": { # template
+		"description": "blahblahblah",
+		"extended description": "yadayadayada",
+		"command": "/spiderplaceholder", # most spiders will run in their use cases; in case it is command-adherent, use this
+		"trigger": [], # what causes the spider to trigger; ex: on hand played, on boss round entered, etc
+		"rarity": "common", # "uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # some spiders are only available as rewards
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 0, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false, # if spider deletes itself after boss round, regardless if used or not
+		"target": "player", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			pass #logic goes here
+			},
+		"Odessa's Heart": {
+		"description": "://odessasheart.spi",
+		"extended description": "The Dragon God, Odessa, blesses her suit with extra scoring. For each Odessa card played, gain +50 chips.",
+		"command": "/odessasheart.spi", # runs on hand played; not needed
+		"trigger": [TriggerPhase.POST_SCORE], # triggers on hand played, adds +50 chips for each suit of odessa scored
+		"rarity": "common", 
+		"buyable": true, 
+		"sellable": true, 
+		"tradeable": true, 
+		"credit value": 50, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false,
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Odessa":
+						game.spider_score += 50
+						game.display_message("Odessa adds 50 chips!")
+			else:
+				game.display_message("No hand played yet.")
+			},
+		"Godrik's Law": {
+		"description": "://godrikslaw.spi",
+		"extended description": "The Dragon God, Godrik, grants his suit extra scoring. For each Godrik card played, gain +50 chips.",
+		"command": "/godrikslaw.spi", # runs on hand played; not needed
+		"trigger": [TriggerPhase.DURING_SCORE], # triggers on hand played, adds +50 chips for each suit of odessa scored
+		"rarity": "common", 
+		"buyable": true, 
+		"sellable": true, 
+		"tradeable": true, 
+		"credit value": 50, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false,
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Godrik":
+						game.spider_score += 50
+						game.display_message("Godrik adds 50 chips!")
+			else:
+				game.display_message("No hand played yet.")
+			},
+		"Baezel's Love": {
+		"description": "://baezelslove.spi",
+		"extended description": "The Dragon God, Baezel, blesses their suit with extra scoring. For each Baezel card played, gain +50 chips.",
+		"command": "/odessasheart.spi", # runs on hand played; not needed
+		"trigger": [TriggerPhase.DURING_SCORE], # triggers on hand played, adds +50 chips for each suit of odessa scored
+		"rarity": "common", 
+		"buyable": true, 
+		"sellable": true, 
+		"tradeable": true, 
+		"credit value": 50, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false,
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Baezel":
+						game.spider_score += 50
+						game.display_message("Baezel adds 50 chips!")
+			else:
+				game.display_message("No hand played yet.")
+			},
+		"Belanger's Safety": { 
+		"description": "://belangerssafety.spi",
+		"extended description": "The Belangers, once human, now roam in their sea as dragons. They protect travellers, as they protect you when you play their suit. They add 2 to the hand's multiplier whenever a card of the Dragons suit is scored.",
+		"command": "/belangerssafety.spi", # most spiders will run in their use cases; in case it is command-adherent, use this
+		"trigger": [TriggerPhase.DURING_SCORE], # what causes the spider to trigger; ex: on hand played, on boss round entered, etc
+		"rarity": "uncommon", # "uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # some spiders are only available as rewards
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 100, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false, # if spider deletes itself after boss round, regardless if used or not
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Dragons":
+						game.spider_multiplier += 2
+						game.display_message("The Belangers add 2 mult!")
+			else:
+				game.display_message("No hand played yet.")
+			}
+}
+
+# spider functions
+func apply_spider_effects(game, trigger_event):
+	var spiders_to_apply = []
+	
+	for spider_name in game.player_spiders.keys():
+		var spider = spiders[spider_name]
+		if spider.has("trigger") and trigger_event in spider["trigger"]:
+			spiders_to_apply.append(spider_name)
+			
+	for spider_name in spiders_to_apply:
+		var spider = spiders[spider_name]
+		spider["effect"].call(game)
+		
+# daemon functions
+
+func execute_daemon(game, command):
+	if daemons.has(command) and player_daemons.has(command):
+		daemons[command]["effect"].call(game)
+	else:
+		display_message("ERROR: DAEMON NOT IN POSSESSION OR NOT IN EXISTENCE.")
+
+func game_loop():
+	while game_state != GameState.END:
+		if game_state == GameState.START:
+			start_game()
+		elif game_state == GameState.PLAYING:
+			play_round()
+		elif game_state == GameState.WIN:
+			handle_win()
+		elif game_state == GameState.LOSE:
+			handle_lose()
+		elif game_state == GameState.HUB:
+			handle_hub()
+		elif game_state == GameState.CIPHERS_HUB:
+			handle_ciphers_hub()
+		elif game_state == GameState.BOSS:
+			handle_boss()
+			
+# game loop functions
+
+func start_game():
+	# all the stuff initially in ready()
+	# a place to input a username/handle (limit chars)
+	# gamestate.playing
+	
+	setup_deck()
+	display_message("Welcome to [game name]. \n")
+	display_message("Please sign in to the SSNN with your username. \n")
+	display_message("Username: \n")
+	display_message("Please remember all usernames are less than twenty characters. \n")
+	
+	# wait for input.
+	
+	if username != null:
+		display_message("Welcome " + username + "! \n")
+		display_message("Would you like to see a list of commands? \n")
+		display_message("Yes or No \n")
+		if prompt == "yes":
+			display_help()
+			prompt = null
+			display_message("Are you ready to start? \n")
+			display_message("Yes or No \n")
+			if prompt == "yes":
+				game_state = GameState.PLAYING
+			if prompt == "no":
+				display_message("It's not a difficult game, but it'll make more sense once you start playing. \n")
+				display_message("You can pick cards to play or discard, and the played cards will be scored with pre-determined scores for hands plus the values of the cards you chose to play. \n")
+				display_message("All you have to make sure to do is score more points than the round is calling for. \n")
+				display_message("After each round, you can visit a hub in the SSNN to edit your deck and acquire upgrades. \n")
+				display_message("In addition, you'll gain credits and rewards once you win! \n")
+				display_message("I'm going to put you in the first round. Just do your best. You can always display the commands again by typing 'help.' Good luck! \n")
+				prompt = null
+				baby_mode = true
+				game_state = GameState.PLAYING
+		if prompt == "no":
+			prompt = null
+			game_state = GameState.PLAYING
+	
+	#calculating functions for scaling difficulty v v v
+func calc_round_reward():
+	var reward = 0
+	
+	if boss_number == 0:
+		if round_number == 1:
+			reward = 50
+		elif round_number == 2:
+			reward = 75
+		elif round_number == 3:
+			reward = 100
+	elif boss_number == 1:
+		if round_number == 4:
+			reward = 125
+		elif round_number == 5:
+			reward = 150
+		elif round_number == 6:
+			reward = 175
+	elif boss_number == 2:
+		if round_number == 7:
+			reward = 225
+		elif round_number == 8:
+			reward = 275
+		elif round_number == 9:
+			reward = 400
+	
+	if hands > 0:
+		reward += (hands * 5)
+		
+	if discards > 0:
+		reward += (discards * 2)
+	
+	return reward
+	
+func calculate_level_multiplier(hand_type):
+	#call when calcuating the hand score
+	if hand_data.has(hand_type):
+		var level = hand_data[hand_type]["level"]
+		var multiplier = 1.0 + (level - 1) * 0.2  # 20% linear increase
+		return multiplier
+	else:
+		print("ERROR: HAND TYPE NOT FOUND IN HAND_DATA.")
+		return 1.0
+		
+func calculate_score_scaling():
+	var base_score = 100
+	var scaling_factor = 50 # adjust????
+	var boss_multiplier = 1.5 # will depend exactly on who the boss is, but good base point
+	
+	var score_to_beat = base_score + (round_number - 1) * scaling_factor
+	
+	if round_number % 4 == 0:
+		score_to_beat *= boss_multiplier
+		
+	if boss_number == 1:
+		score_to_beat *= 2
+	if boss_number == 2:
+		score_to_beat *= 3
+		
+	return score_to_beat
+	# ^ ^ ^
+	
+func play_round():
+	 #deal hand, display score to beat
+	# declare how many hands the player has
+	# declare how many discards they have
+	# after score is beaten or hands are depleted, handle_win() or handle_loss()
+	# gamestate.win OR gamestate.lose
+	var score_to_beat = calculate_score_scaling()
+	reset_discard_pile()
+	
+	# baby mode is an easier mode for learning to play or for fun
+	if baby_mode == true:
+		if boss_number == 0:
+			hands = 8
+			discards = 4
+			score_to_beat -= 50
+		elif boss_number == 1:
+			hands = 7
+			discards = 3
+			score_to_beat -= 100
+		elif boss_number == 2:
+			hands = 6
+			discards = 3
+			score_to_beat -= 150
+			
+	if dick_mode == true:
+		if boss_number == 0:
+			hands -= 1
+			discards -= 1
+			score_to_beat += 100
+		elif boss_number == 1:
+			hands -= 2
+			discards -= 1
+			score_to_beat += 300
+		elif boss_number == 2:
+			hands -= 2
+			discards -= 1
+			score_to_beat += 500
+			
+	apply_spider_effects(self, TriggerPhase.ROUND_START)
+
+	shuffle_deck()
+	deal_hand()
+	generate_displayed_hand()
+	display_hand()
+	
+	display_message("Score at least " + str(score_to_beat) + " points to win. \n")
+	display_message("You have " + str(hands) + "and " + str(discards) + " remaining. \n")
+	
+	#consumables
+	if consumables.size() > 0:
+		display_message("") #maybe iterate through the array to list them?
+		# or a function like get_consumables
+		#plus a way to actually use them eventually
+		
+	if prompt == "handplayed":
+		#calc score remaining to win and etc
+		if score_to_beat <= score:
+			prompt = null
+			round_number += 1
+			apply_spider_effects(self, TriggerPhase.ROUND_FINISH)
+			game_state = GameState.WIN
+		elif hands > 0:
+			var remaining_score = score_to_beat - score
+			prompt = null
+			round_number += 1
+			display_message("Score at least " + str(score_to_beat) + " points to win. \n")
+			display_message("You have " + str(remaining_score) + " left to score in order to win. \n")
+		else:
+			display_message("No hands remaining! \n")
+			display_message("Feel free to try again. \n")
+			prompt = null
+			round_number = 1
+			boss_number = 0
+			game_state = GameState.LOSE
+			
+func add_hand_types_to_array(hand_type):
+	if hand_data.has(hand_type):
+		if hand_data[hand_type].has("times played"):
+			hand_data[hand_type]["times played"] += 1
+		else:
+			hand_data[hand_type]["times played"] = 1
+	else:
+		print("ERROR: HAND TYPE NOT FOUND IN HAND_DATA.")
+	
+func organically_lvl_hands(hand_type):
+	#double checks since hands can be levelled in hub
+	#this function only does it organically
+	#even if it's been levelled up in hub previously
+	#run this after each hand played
+	
+	if hand_data.has(hand_type):
+		if hand_data[hand_type]["times played"] == 5 and hand_data[hand_type]["level"] == 1:
+			hand_data[hand_type]["level"] += 1
+			display_message("Your played hand, " + hand_data[hand_type]["name"] + ", levelled up! \n")
+		elif hand_data[hand_type]["times played"] == 10 and hand_data[hand_type]["level"] == 2:
+			hand_data[hand_type]["level"] += 1
+			display_message("Your played hand, " + hand_data[hand_type]["name"] + ", levelled up! \n")
+		elif hand_data[hand_type]["times played"] == 15 and hand_data[hand_type]["level"] == 3:
+			hand_data[hand_type]["level"] += 1
+			display_message("Your played hand, " + hand_data[hand_type]["name"] + ", levelled up! \n")
+		elif hand_data[hand_type]["times played"] == 20 and hand_data[hand_type]["level"] == 4:
+			hand_data[hand_type]["level"] += 1
+			display_message("Your played hand, " + hand_data[hand_type]["name"] + ", levelled up! \n")
+		elif hand_data[hand_type]["times played"] == 25 and hand_data[hand_type]["level"] == 5:
+			hand_data[hand_type]["level"] += 1
+			display_message("Your played hand, " + hand_data[hand_type]["name"] + ", levelled up! \n")
+		elif hand_data[hand_type]["times played"] == 30 and hand_data[hand_type]["level"] == 6:
+			hand_data[hand_type]["level"] += 1
+			display_message("Your played hand, " + hand_data[hand_type]["name"] + ", levelled up! \n")
+	else:
+		print("ERROR: HAND TYPE NOT FOUND IN HAND_DATA.")
+		
+func handle_win():
+	# set amount of creds as a reward (increase as rounds increase)
+	# offer daemons/spiders/etc as a reward
+	# give opp for going to hub
+	# if goes to hub: gamestate.hub
+	# if not, start next round
+	
+	# reset deck and discards so if they want to see their deck they can even in hub
+	#add_cards_back_to_deck() <-- right????
+		#like: for card in discard_pile, append to deck and erase from discard_pile
+	reset_discard_pile()
+	
+	
+	var rewarded_creds = calc_round_reward()
+	credits += rewarded_creds
+	display_message("Good job! \n")
+	display_message("You've earned " + str(rewarded_creds) + "credits for your win! \n")
+	display_message("You can also choose one of these three rewards: \n")
+	
+	# rogue-like rewards-- choose one of three
+	# functions to randomise each option
+	# prompt to choose one or pass (add to process_input)
+	# if prompt == 1 (2, 3)
+		# add consumable to array consumables	
+	# if prompt == pass
+		#go to next section
+	
+	# prompt if they want to go to the hub
+	
+	# if yes: gamestate.hub
+	
+	#if no: gamestate.playing
+	
+func reset_hand_play_counts():
+	for hand_type in hand_data.keys():
+		if hand_data[hand_type].has("times played"):
+			hand_data[hand_type]["times played"] = 0
+			
+func handle_lose():
+	display_message("You tried your best, but it wasn't enough. \n")
+	display_message("You played " + str(round_number) + " rounds and beat " + str(boss_number) + " bosses. \n")
+	display_message("Would you like to play again? \n")
+	display_message("Yes or No \n")
+	
+	if prompt == "yes":
+		prompt = null
+		game_state = GameState.START
+	elif prompt == "no":
+		prompt = null
+		round_number = 1
+		boss_number = 0
+		reset_hand_play_counts()
+		consumables.clear()
+		game_state = GameState.END
+	else:
+		prompt == null
+		display_message("You have to choose. Yes, you want to play again, or no, you want to quit. \n")
+		display_message("Yes or No \n")
+		
+	# display some kind of message
+	#stats???
+	# play again or quit
+	# if play again: gamestate.start
+	# if quit: clear username and gamestate.end
+	
+	
+func handle_hub():
+	pass 
+	
+	# apply spider effects trigger: hubenter
+	# randomise who's in the hub, hub #, etc. make it seem like it's random
+	# shop: cards, daemons, spiders for sale
+	# trade: trade offers, offer cards up for trade (creds/card received given after next round)
+	# sell: sell cards, daemons, spiders instantly for a lower price
+	# after leaving, apply spider effects trigger: hubexit; gamestate.playing
+	
+func handle_ciphers_hub():
+	pass # only after boss rounds
+	# cipher is the programmer so she has the best stuff
+	# apply spider effects trigger: hubenter
+	# same shop, trade, sell options, but with raised buy/sell options and increased rarity
+	#after leaving, apply spider effects trigger: hubexit; gamestate.playing
+	
+func handle_boss():
+	pass  #maybe a separate one for the final boss?
+	# same basics as normal round
+	#trigger spider on round start
+	# trigger spider phase: boss round
+	# randomise who is the boss (username mainly, any flavour)
+	# base score to beat on the round #, but make sure it changes if game is played again to negate predictability
+	# logic for a special input for hacks/spiders to do things like decrease score, inflate own score, debuff boss cards, etc
+	# logic for boss's abilities-- randomise hacks based on boss username, maybe based on player deck composition
+	# if win: gamestate.win
+		# offer inflated rewards based on boss
+		# trigger spider on round finish
+	# if lose: gamestate.lose
+		# display a gloating message based on boss
+		# offer to start again or quit
+			# if restart: gamestate.start
+			# if quit: clear username and gamestate.end
+
+func _ready() -> void:
+	#game state variable reset just to be sure
+	game_state = GameState.PLAYING
+	round_number = 1
+	boss_number = 0
+	#basic setup
+	setup_deck()
+	game_loop()
+	
+func process_input(input_text):
+	if user_input.text != "":
+		input_text = user_input.text
+		user_input.clear()
+	display_message("> " + input_text + "\n")
+	
+	var input_parts = input_text.split(" ")
+	
+	# round playing specifics
+	
+	if game_state == GameState.PLAYING:
+		if input_parts.size() > 0:
+			if input_parts[0].to_lower() == "play":
+				play_cards(input_parts.slice(1)) # Pass card numbers to play_cards
+			elif input_parts[0].to_lower() == "discard":
+				discard_cards(input_parts.slice(1)) # Pass card numbers to discard_cards
+
+
+			# other inputs / helper features
+	
+			elif input_parts[0].to_lower() == "help":
+				display_help()
+			elif input_parts[0].to_lower() == "discard pile":
+				display_discard_pile()
+			elif input_parts[0].to_lower() == "deck":
+				display_deck()
+			elif input_parts[0].to_lower() == "hand":
+				display_hand()
+			# add in a way to see levels of hands?
+			# add in ways to sort hand by rank or suit (funcs already exist)
+				
+	# prompts
+	elif input_parts[0].to_lower() == "yes":
+				prompt = "yes"
+	elif input_parts[0].to_lower() == "no":
+				prompt = "no"
+				
+	elif input_text.begins_with("/"):
+		var parts = input_text.split(" ")
+		if parts.size() < 1:
+			return
+			
+			
+		var command = parts[0]
+		
+		var action = null
+		var action_2 = null # for storing card choices
+		var action_3 = null
+		var action_4 = null
+		if parts.size() > 1:
+			action = parts[1]
+			prompt = parts[1]
+			if parts.size() == 2:
+				action_2 = parts[2]
+				prompt = [action, action_2]
+			elif parts.size() == 3:
+				action_2 = parts[2]
+				action_3 = parts[3]
+				prompt = [action, action_2, action_3]
+			elif parts.size() == 4:
+				action_2 = parts[2]
+				action_3 = parts[3]
+				action_4 = parts[4]
+				prompt = [action, action_2, action_3, action_4]
+			
+		execute_daemon(self, command)
+		prompt = null
+			
+		
+			
+	# username handling
+	
+	elif GameState.START and username == null:
+		username_inputs = 1
+		if input_parts.size() == 0 and username_inputs == 1:
+			display_message("Enter your username: \n")
+			username_inputs += 1
+		elif input_parts.size() == 0 and username_inputs == 2:
+			display_message("Hey, enter your username. Less than 20 characters. No spaces. \n")
+			username_inputs += 1
+		elif input_parts.size() == 0 and username_inputs == 3:
+			display_message("Is it too confusing for you? You need a username. Just enter anything. Really. \n")
+			username_inputs += 1
+		elif input_parts.size() == 0 and username_inputs == 4:
+			display_message("It is too much for you to handle. Last chance before I assign you one. \n")
+		elif input_parts.size() == 0 and username_inputs > 4:
+			var nells_usernames = ["annoying", "idiotsandwich", "thetruejester", "sillybillyjilly", "froofroo", "sisyphus"]
+			username = nells_usernames[randi_range(0, nells_usernames.size() - 1)]
+			display_message("Your username is now " + str(username) + ".\n")
+			display_message("Congratulations" + str(username) + ".\n")
+			# move the game to playing like they hadn't been a dingus
+			game_state = GameState.PLAYING
+			username_inputs = 0
+			start_game()
+			return
+				
+				
+		username = input_parts[0]
+		if username.length() > 20:
+			username = username.left(20)
+			display_message("Username truncated to twenty characters. \n")
+			display_message("I warned you, didn't I? \n")
+			
+		else:
+			display_message("Invalid command. \n")
+	else:
+		display_message("Invalid command. \n")
+			
+#deck setup functions
+
+func shuffle_deck():
+	randomize()
+	deck.shuffle()
+	
+func setup_deck():
+	# ONLY AT START OF GAME
+	
+	# each deck starts with 4 suits
+	var suits = ["Odessa", "Godrik", "Dragons", "Baezel"]
+	# each deck starts with 1 of each rank in each suit
+	var ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Templar", "Queen", "King", "Paladin"]
+	# not the point values but for comparing cards for sorting and hand-type detection
+	var rank_values = {
+		"2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "Templar": 11, "Queen":12, "King":13, "Paladin":14
+		}
+	# placeholder for each card's scoring potential
+	var chip_values = { "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "Templar": 11, "Queen":12, "King":13, "Paladin":14
+		
+	}
+	# placeholder for changes to how much mult each card is worth
+	# base is 1 for no change to the multiplier
+	var mult_values = { "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1, "10": 1, "Templar": 1, "Queen":1, "King":1, "Paladin":1
+		
+	}
+	for suit in suits:
+		for rank in ranks:
+			var card = {
+				"suit": suit,
+				"rank": rank,
+				"value": rank_values[rank],
+				"chip value": chip_values[rank],
+				"mult value": mult_values[rank]
+			}
+			deck.append(card)
+
+# hand functions
+
+func deal_hand():
+	player_hand.clear()
+	for _i in range(player_hand_size): # each gamestate start has a base hand size of 8
+		if deck.size() > 0:
+			player_hand.append(deck.pop_front())
+		else:
+			display_message("Deck is empty!\n")
+	
+func generate_displayed_hand():
+	displayed_hand.clear()
+	var sorted_hand = sort_hand_by_rank(player_hand)
+	for i in range(sorted_hand.size):
+		displayed_hand.append(str(i + 1) + ": " + str(sorted_hand[i]))
+
+func draw_cards(num_cards):
+	for _i in range(num_cards):
+		if deck.size() > 0:
+			player_hand.append(deck.pop_front())
+		else:
+			display_message("Deck is empty! \n")
+			break
+	generate_displayed_hand()
+	display_hand()
+			
+# play and discard functions
+
+func play_cards(card_numbers):
+	var cards_to_play = []
+	for num_str in card_numbers:
+		var card_number = int(num_str.strip()) - 1
+		if card_number >= 0 and card_number < player_hand.size():
+			cards_to_play.append(player_hand[card_number])
+		else:
+			display_message("Invalid card number: " + num_str + "\n")
+			return
+	if cards_to_play.size() > 0 and hands > 0:
+		score += calculate_score(cards_to_play)
+		display_message("Score: " + str(score) + "\n")
+		prompt = "handplayed" # send a note to handle_round or handle_boss
+		
+		for card in cards_to_play: # adds cards to discard pile and deletes from hand to draw new cards
+			discard_pile.append(card)
+			player_hand.erase(card)
+		hands -= 1
+		display_message("Hands remaining: " + str(hands) + "\n")
+		draw_cards(cards_to_play.size())
+		generate_displayed_hand()
+		display_hand()
+	else:
+		display_message("No hands remaining! \n")
+		game_state = GameState.LOSE
+	
+func discard_cards(card_numbers):
+	var cards_to_discard = []
+	for num_str in card_numbers:
+		var card_number = int(num_str.strip()) - 1
+		if card_number >= 0 and card_number < player_hand.size():
+			cards_to_discard.append(player_hand[card_number])
+		else:
+			display_message("Invalid card number: " + num_str + "\n")
+			return
+	if cards_to_discard.size() > 0 and discards > 0:
+		for card in cards_to_discard: # adds discarded cards to discard pile and deletes from hand to draw new cards
+			discard_pile.append(card)
+			player_hand.erase(card)
+		discards -= 1
+		display_message("Discards remaining: " + str(discards) + "\n")
+		draw_cards(cards_to_discard.size())
+		generate_displayed_hand()
+		display_hand()
+	elif discards == 0:
+		display_message("No discards remaining!")
+	else:
+		display_message("You have to select cards to discard. \n")
+		display_message("Example: discard 1 3 5 \n")
+		
+		
+func reset_discard_pile(): # only used at start of round
+	discard_pile.clear()
+	
+# sorting and ranking functions
+	
+func sort_hand_by_rank(hand):
+	var sorted_hand = hand.duplicate()
+	sorted_hand.sort_custom(self, "compare_cards_by_rank")
+	return sorted_hand
+	
+func compare_cards_by_rank(a, b):
+	if typeof(a) == TYPE_DICTIONARY and typeof(b) == TYPE_DICTIONARY:
+		return a.value < b.value
+	else:
+		var rank_a = get_card_rank_value(a)
+		var rank_b = get_card_rank_value(b)
+		return rank_a < rank_b
+		
+func get_card_rank_value(card_string):
+	var ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "Templar", "Queen", "King", "Paladin"]
+	for i in range(ranks.size()):
+		if card_string.begins_with(ranks[i]):
+			return i + 2
+	return 0
+	
+func sort_hand_by_suit(hand):
+	var sorted_hand = hand.duplicate()
+	sorted_hand.sort_custom(self, "compare_cards_by_suit")
+	return sorted_hand
+	
+func compare_cards_by_suit(a, b):
+	if typeof(a) == TYPE_DICTIONARY and typeof(b) == TYPE_DICTIONARY:
+		var suits = ["Odessa", "Godrik", "Dragons", "Baezel"]
+		return suits.find(a.suit) < suits.find(b.suit)
+	else:
+		var suits = ["Odessa", "Godrik", "Dragons", "Baezel"]
+		var suit_a = get_card_suit(a)
+		var suit_b = get_card_suit(b)
+		return suits.find(suit_a) < suits.find(suit_b)
+		
+func get_card_suit(card_string):
+	var suits = ["Odessa", "Godrik", "Dragons", "Baezel"]
+	for suit in suits:
+		if card_string.ends_with(suit):
+			return suit
+	return ""
+
+# display functions
+
+func display_deck():
+	if deck.size() > 0:
+		display_message("Your current deck: \n")
+		for card in deck:
+			display_message(str(card) + "\n")
+	else:
+		display_message("Your deck is empty! \n")
+		
+func display_hand():
+	display_message("Your hand: \n")
+	for card in displayed_hand:
+		display_message(card + "\n")
+		
+func display_discard_pile():
+	if discard_pile.size() > 0:
+		display_message("Cards in discard pile: \n")
+		for card in discard_pile:
+			display_message(str(card) + "\n")
+	else:
+		display_message("No cards in discard pile yet. \n")
+
+func display_message(message):
+	displayed_message.append_text(message)
+	
+func display_help():
+	display_message("Available commands: \n")
+	for command in commands.keys():
+		display_message("- " + command + commands[command] + "\n")
+		
+		
+#scoring functions
+
+func calculate_score(played_hand):
+	var hand_type = analyze_hand(played_hand)
+	var hand_score = 0
+	
+	if hand_type == HandType.HIGH_CARD:
+		if is_royal_flush(played_hand):
+			hand_type = HandType.ROYAL_FLUSH
+			add_hand_types_to_array(HandType.ROYAL_FLUSH)
+			organically_lvl_hands(HandType.ROYAL_FLUSH)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_royal_flush(played_hand) * multiplier
+		elif is_straight_flush(played_hand):
+			hand_type = HandType.STRAIGHT_FLUSH
+			add_hand_types_to_array(HandType.STRAIGHT_FLUSH)
+			organically_lvl_hands(HandType.STRAIGHT_FLUSH)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_straight_flush(played_hand) * multiplier
+		elif is_straight(played_hand):
+			hand_type = HandType.STRAIGHT
+			add_hand_types_to_array(HandType.STRAIGHT)
+			organically_lvl_hands(HandType.STRAIGHT)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_straight(played_hand) * multiplier
+		elif is_flush(played_hand):
+			hand_type = HandType.FLUSH
+			add_hand_types_to_array(HandType.FLUSH)
+			organically_lvl_hands(HandType.FLUSH)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_flush(played_hand) * multiplier
+		else:
+			hand_type = HandType.HIGH_CARD
+			add_hand_types_to_array(HandType.HIGH_CARD)
+			organically_lvl_hands(HandType.HIGH_CARD)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_high_card(played_hand) * multiplier
+	elif hand_type == HandType.PAIR:
+		if is_two_pair(played_hand):
+			hand_type = HandType.TWO_PAIR
+			add_hand_types_to_array(HandType.TWO_PAIR)
+			organically_lvl_hands(HandType.TWO_PAIR)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_two_pair(played_hand) * multiplier
+		else:
+			hand_type = HandType.PAIR
+			add_hand_types_to_array(HandType.PAIR)
+			organically_lvl_hands(HandType.PAIR)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_pair(played_hand) * multiplier
+	elif hand_type == HandType.TWO_PAIR:
+		if not is_pair(played_hand):
+			if not is_full_house(played_hand):
+				hand_type = HandType.TWO_PAIR
+				add_hand_types_to_array(HandType.TWO_PAIR)
+				organically_lvl_hands(HandType.TWO_PAIR)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_two_pair(played_hand) * multiplier
+	elif hand_type == HandType.THREE_OF_A_KIND:
+		if not is_full_house(played_hand):
+			if not is_pair(played_hand):
+				if is_the_three(played_hand):
+					hand_type = HandType.THE_THREE
+					add_hand_types_to_array(HandType.THE_THREE)
+					organically_lvl_hands(HandType.THE_THREE)
+					var multiplier = calculate_level_multiplier(hand_type)
+					hand_score = calc_the_three(played_hand) * multiplier
+				else:
+					hand_type = HandType.THREE_OF_A_KIND
+					add_hand_types_to_array(HandType.THREE_OF_A_KIND)
+					organically_lvl_hands(HandType.THREE_OF_A_KIND)
+					var multiplier = calculate_level_multiplier(hand_type)
+					hand_score = calc_three_of_a_kind(played_hand) * multiplier
+	elif hand_type == HandType.FOUR_OF_A_KIND:
+		if not is_five_of_a_kind(played_hand):
+			if is_flush_four(played_hand):
+				hand_type = HandType.FLUSH_FOUR
+				add_hand_types_to_array(HandType.FLUSH_FOUR)
+				organically_lvl_hands(HandType.FLUSH_FOUR)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_four_of_a_kind(played_hand) * multiplier
+			else:
+				hand_type = HandType.FOUR_OF_A_KIND
+				add_hand_types_to_array(HandType.FOUR_OF_A_KIND)
+				organically_lvl_hands(HandType.FOUR_OF_A_KIND)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_four_of_a_kind(played_hand) * multiplier
+	elif hand_type == HandType.FIVE_OF_A_KIND:
+		if is_flush_five(played_hand):
+			hand_type = HandType.FLUSH_FIVE
+			add_hand_types_to_array(HandType.FLUSH_FIVE)
+			organically_lvl_hands(HandType.FLUSH_FIVE)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_flush_five(played_hand) * multiplier
+		else:
+			hand_type = HandType.FIVE_OF_A_KIND
+			add_hand_types_to_array(HandType.FIVE_OF_A_KIND)
+			organically_lvl_hands(HandType.FIVE_OF_A_KIND)
+			var multiplier = calculate_level_multiplier(hand_type)
+			hand_score = calc_five_of_a_kind(played_hand) * multiplier
+	elif hand_type == HandType.FULL_HOUSE:
+		if is_flush_house(played_hand):
+			if is_odessas_house(played_hand):
+				hand_type = HandType.ODESSAS_HOUSE
+				add_hand_types_to_array(HandType.ODESSAS_HOUSE)
+				organically_lvl_hands(HandType.ODESSAS_HOUSE)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_odessas_house(played_hand) * multiplier
+			elif is_baezels_house(played_hand):
+				hand_type = HandType.BAEZELS_HOUSE
+				add_hand_types_to_array(HandType.BAEZELS_HOUSE)
+				organically_lvl_hands(HandType.BAEZELS_HOUSE)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_baezels_house(played_hand) * multiplier
+			elif is_godriks_house(played_hand):
+				hand_type = HandType.GODRIKS_HOUSE
+				add_hand_types_to_array(HandType.GODRIKS_HOUSE)
+				organically_lvl_hands(HandType.GODRIKS_HOUSE)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_godriks_house(played_hand) * multiplier
+			else:
+				hand_type = HandType.FULL_HOUSE
+				add_hand_types_to_array(HandType.FULL_HOUSE)
+				organically_lvl_hands(HandType.FULL_HOUSE)
+				var multiplier = calculate_level_multiplier(hand_type)
+				hand_score = calc_full_house(played_hand) * multiplier
+				
+	apply_spider_effects(self, TriggerPhase.PRE_SCORE) # apply any spider effects
+	apply_spider_effects(self, TriggerPhase.DURING_SCORE)
+	apply_spider_effects(self, TriggerPhase.POST_SCORE)
+	
+	var final_score = (hand_score + spider_score) * spider_multiplier
+	
+	scored_cards.clear() # clear out the array for the next hand played
+	spider_score = 0 # reset the separate spider score variable
+	spider_multiplier = 1 # reset the spider multiplier
+	
+	return final_score
+	
+func analyze_hand(cards):
+	var rank_counts = {}
+	for card in cards:
+		var rank = card.rank
+		if rank_counts.has(rank):
+			rank_counts[rank] += 1
+		else:
+			rank_counts[rank] = 1
+			
+	var counts = rank_counts.values()
+	counts.sort()
+	
+	if counts.has(5):
+		return HandType.FIVE_OF_A_KIND
+	elif counts.has(4):
+		return HandType.FOUR_OF_A_KIND
+	elif counts.has(3) and counts.has(2):
+		return HandType.FULL_HOUSE
+	elif counts.has(3):
+		return HandType.THREE_OF_A_KIND
+	elif counts.count(2) == 2:
+		return HandType.TWO_PAIR
+	elif counts.has(2):
+		return HandType.PAIR
+	else:
+		return HandType.HIGH_CARD
+	
+# hand type logic + calculations
+
+func is_high_card(cards):
+	if not is_flush(cards) and not is_straight(cards):
+		return true 
+	
+func is_pair(cards):
+	if cards.size() < 2:
+		return false
+			
+	if not is_flush(cards) and not is_full_house(cards) and not is_three_of_a_kind(cards):
+		if is_two_pair(cards) == true:
+			return false
+			
+		var rank_counts = []
+		for card in cards:
+			if rank_counts.has(card.rank):
+				rank_counts[card.rank] += 1
+			else:
+				rank_counts[card.rank] = 1
+				
+		for count in rank_counts.values:
+			if count == 2:
+				return true
+			else:
+				return false
+				
+func is_two_pair(cards):
+	if cards.size() < 4:
+		return false
+		
+		
+	var rank_counts = []
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var pair_count = 0
+	for count in rank_counts.values():
+		if count == 2:
+			pair_count += 1
+			
+	return pair_count == 2
+		
+# straights and flushes
+
+func is_flush(cards):
+	if cards.size() < 5:
+		return false
+	var first_suit = cards[0].suit
+	for card in cards:
+		if card.suit != first_suit:
+			return false
+	return true
+	
+func is_straight(cards):
+	if cards.size() < 5:
+		return false
+	var ranks = []
+	
+	for card in cards:
+		ranks.append(card.rank_values)
+		
+	ranks.sort()
+	
+	for i in range(ranks.size() - 1):
+		if ranks[i + 1] != ranks[i] + 1:
+			return false
+	return true
+	
+func is_straight_flush(cards):
+	if is_straight(cards):
+		if is_flush(cards):
+			return true
+	else:
+		return false
+		
+func is_royal_flush(cards):
+	if is_straight_flush(cards):
+		var ranks = []
+		for card in cards:
+			ranks.append(card.value)
+		ranks.sort()
+		var royal_ranks = [10, 11, 12, 13, 14]
+		return ranks == royal_ranks
+	
+# five of a kind hands
+	
+func is_five_of_a_kind(cards):
+	if cards.size() < 5:
+		return false
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	for count in rank_counts.values():
+		if count == 5:
+			return true
+		else:
+			return false
+
+func is_flush_five(cards):
+	if is_five_of_a_kind(cards) and is_flush(cards):
+		return true
+	else:
+		return false
+	
+# four of a kind hands
+	
+func is_four_of_a_kind(cards):
+	if cards.size() < 4:
+		return false
+	if is_flush(cards):
+		return false
+	else:
+		var rank_counts = {}
+		for card in cards:
+			if rank_counts.has(card.rank):
+				rank_counts[card.rank] += 1
+			else:
+				rank_counts[card.rank] = 1
+		for count in rank_counts.values():
+			if count == 4:
+				return true
+		return false
+				
+func is_flush_four(cards):
+	
+	if not is_four_of_a_kind(cards):
+		return false
+	
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var four_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 4:
+			four_rank = rank
+			break
+			
+	var four_cards= []
+	for card in cards:
+		if card.rank == four_rank:
+			four_cards.append(card)
+			
+	var first_suit = four_cards[0].suit
+	for card in four_cards:
+		if card.suit != first_suit:
+			return false
+	return true
+	
+# score calculations
+	
+func calc_four_of_a_kind(cards):
+	if cards.size() < 4:
+		return 0
+		
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var quad_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 4:
+			quad_rank = rank
+			break
+			
+	var quad_cards = []
+	for card in cards:
+		if card.rank == quad_rank:
+			quad_cards.append(card)
+			
+			
+	#score calculation based on cards in above array
+	var hand_score = hand_data[HandType.FOUR_OF_A_KIND]["base score"]
+	for card in quad_cards:
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		scored_cards.append(card)
+		
+	return hand_score
+	
+func calc_flush_four(cards):
+	if cards.size() < 4:
+		return 0
+		
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var quad_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 4:
+			quad_rank = rank
+			break
+			
+	var quad_cards = []
+	for card in cards:
+		if card.rank == quad_rank:
+			quad_cards.append(card)
+			
+	#score calculation based on cards in above array
+	var hand_score = hand_data[HandType.FLUSH_FOUR]["base score"]
+	for card in quad_cards:
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		scored_cards.append(card)
+		
+	return hand_score
+	
+func calc_five_of_a_kind(cards):
+	if cards.size() < 5:
+		return 0
+		
+	var hand_score = hand_data[HandType.FIVE_OF_A_KIND]["base score"]
+	for card in cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_flush_five(cards):
+	if cards.size() < 5:
+		return 0
+		
+	var hand_score = hand_data[HandType.FLUSH_FIVE]["base score"]
+	for card in cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_straight(cards):
+	if cards.size() < 5:
+		return 0
+		
+	var hand_score = hand_data[HandType.STRAIGHT]["base score"]
+	for card in cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+
+func calc_straight_flush(cards):
+	if cards.size() < 5:
+		return 0
+		
+	var hand_score = hand_data[HandType.STRAIGHT_FLUSH]["base score"]
+	for card in cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_royal_flush(cards):
+	if cards.size() < 5:
+		return 0
+		
+	var hand_score = hand_data[HandType.ROYAL_FLUSH]["base score"]
+	for card in cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_flush(cards):
+	if cards.size() < 5:
+		return 0
+	
+	var hand_score = hand_data[HandType.FLUSH]["base score"]
+	for card in cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_pair(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var pair_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			pair_rank = rank
+			break
+			
+	var pair_cards = []
+	for card in cards:
+		if card.rank == pair_rank:
+			pair_cards.append(card)
+			
+	#score calculation based on cards in above array
+	var hand_score = hand_data[HandType.PAIR]["base score"]	
+	for card in pair_cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_two_pair(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var pair_ranks = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			pair_ranks.append(rank)
+		
+	if pair_ranks.size() != 2:
+		return 0
+		
+	var pair_1_cards = []
+	var pair_2_cards = []
+	for card in cards:
+		if card.rank == pair_ranks[0]:
+			pair_1_cards.append(card)
+		if card.rank == pair_ranks[1]:
+			pair_2_cards.append(card)
+			
+	#score calculation based on cards in above arrays
+	var hand_score = hand_data[HandType.TWO_PAIR]["base score"]
+	for card in pair_1_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+	for card in pair_2_cards:
+		scored_cards.append(card)
+		hand_score *= card["mult value"]
+		hand_score += card["chip value"]
+		
+	return hand_score
+	
+func calc_high_card(cards):
+	var sorted_cards = sort_hand_by_rank(cards)
+	var highest_card = sorted_cards[sorted_cards.size() - 1]
+	
+	var hand_score = hand_data[HandType.HIGH_CARD]["base score"]
+	hand_score += highest_card["chip value"]
+	hand_score *= highest_card["mult value"]
+	scored_cards.append(highest_card)
+	
+	return hand_score
+	
+func calc_full_house(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var rank_has_three = []
+	var rank_has_two = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			rank_has_two.append(rank)
+		elif rank_counts[rank] == 3:
+			rank_has_three.append(rank)
+			
+	if rank_has_three.size() == 0 or rank_has_two.size() == 0:
+		return 0
+			
+	var three_rank_cards = []
+	var two_rank_cards = []
+	for card in cards:
+		if card.rank == rank_has_three[0]:
+			three_rank_cards.append(card)
+		elif card.rank == rank_has_two[0]:
+			two_rank_cards.append(card)
+			
+	var hand_score = hand_data[HandType.FULL_HOUSE]["base score"]
+	for card in three_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+	for card in two_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+		
+func calc_flush_house(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var rank_has_three = []
+	var rank_has_two = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			rank_has_two.append(rank)
+		elif rank_counts[rank] == 3:
+			rank_has_three.append(rank)
+			
+	if rank_has_three.size() == 0 or rank_has_two.size() == 0:
+		return 0
+			
+	var three_rank_cards = []
+	var two_rank_cards = []
+	for card in cards:
+		if card.rank == rank_has_three[0]:
+			three_rank_cards.append(card)
+		elif card.rank == rank_has_two[0]:
+			two_rank_cards.append(card)
+			
+	var hand_score = hand_data[HandType.FLUSH_HOUSE]["base score"]
+	for card in three_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+	for card in two_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+	
+func calc_godriks_house(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var rank_has_three = []
+	var rank_has_two = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			rank_has_two.append(rank)
+		elif rank_counts[rank] == 3:
+			rank_has_three.append(rank)
+			
+	if rank_has_three.size() == 0 or rank_has_two.size() == 0:
+		return 0
+			
+	var three_rank_cards = []
+	var two_rank_cards = []
+	for card in cards:
+		if card.rank == rank_has_three[0]:
+			three_rank_cards.append(card)
+		elif card.rank == rank_has_two[0]:
+			two_rank_cards.append(card)
+			
+	var hand_score = hand_data[HandType.GODRIKS_HOUSE]["base score"]
+	for card in three_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+	for card in two_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+	
+func calc_odessas_house(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var rank_has_three = []
+	var rank_has_two = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			rank_has_two.append(rank)
+		elif rank_counts[rank] == 3:
+			rank_has_three.append(rank)
+			
+	if rank_has_three.size() == 0 or rank_has_two.size() == 0:
+		return 0
+			
+	var three_rank_cards = []
+	var two_rank_cards = []
+	for card in cards:
+		if card.rank == rank_has_three[0]:
+			three_rank_cards.append(card)
+		elif card.rank == rank_has_two[0]:
+			two_rank_cards.append(card)
+			
+	var hand_score = hand_data[HandType.ODESSAS_HOUSE]["base score"]
+	for card in three_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+	for card in two_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+	
+func calc_baezels_house(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var rank_has_three = []
+	var rank_has_two = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			rank_has_two.append(rank)
+		elif rank_counts[rank] == 3:
+			rank_has_three.append(rank)
+			
+	if rank_has_three.size() == 0 or rank_has_two.size() == 0:
+		return 0
+			
+	var three_rank_cards = []
+	var two_rank_cards = []
+	for card in cards:
+		if card.rank == rank_has_three[0]:
+			three_rank_cards.append(card)
+		elif card.rank == rank_has_two[0]:
+			two_rank_cards.append(card)
+			
+	var hand_score = hand_data[HandType.BAEZELS_HOUSE]["base score"]
+	for card in three_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+	for card in two_rank_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+	
+func calc_the_three(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var trio_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 3:
+			trio_rank = rank
+			break
+			
+	var trio_cards = []
+	for card in cards:
+		if card.rank == trio_rank:
+			trio_cards.append(card)
+			
+	#score calculation based on cards in above array
+	var hand_score = hand_data[HandType.THE_THREE]["base score"]
+	for card in trio_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+	
+func calc_three_of_a_kind(cards):
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+			
+	var trio_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 3:
+			trio_rank = rank
+			break
+			
+	var trio_cards = []
+	for card in cards:
+		if card.rank == trio_rank:
+			trio_cards.append(card)
+			
+	#score calculation based on cards in above array
+	var hand_score = hand_data[HandType.THREE_OF_A_KIND]["base score"]
+	for card in trio_cards:
+		scored_cards.append(card)
+		hand_score += card["chip value"]
+		hand_score *= card["mult value"]
+		
+	return hand_score
+	
+# full house hands
+
+func is_full_house(cards):
+	if cards.size() != 5:
+		return false
+		
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var has_three = false
+	var has_two = false
+	
+	for count in rank_counts.values():
+		if count == 3:
+			has_three = true
+		elif count == 2:
+			has_two = true
+			
+	if has_three == true and has_two == true:
+		return true
+		
+func is_flush_house(cards):
+	if is_flush(cards) and is_full_house(cards):
+		return true
+		
+func is_godriks_house(cards):
+	if is_flush_house(cards):
+		var first_suit = cards[0].suit
+		if first_suit == "Godrik":
+			for card in cards:
+				if card.suit != first_suit:
+					return false
+			return true
+		else:
+			return false
+			
+func is_baezels_house(cards):
+	if is_flush_house(cards):
+		var first_suit = cards[0].suit
+		if first_suit == "Baezel":
+			for card in cards:
+				if card.suit != first_suit:
+					return false
+			return true
+		else:
+			return false
+			
+func is_odessas_house(cards):
+	if is_flush_house(cards):
+		var first_suit = cards[0].suit
+		if first_suit == "Odessa":
+			for card in cards:
+				if card.suit != first_suit:
+					return false
+			return true
+		else:
+			return false
+	
+# three of a kind hands
+
+func is_three_of_a_kind(cards):
+	if is_flush(cards):
+		return false
+	if cards.size() < 3:
+		return false
+		
+	var rank_counts = {}
+	for card in cards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	
+	var three_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 3:
+			three_rank = rank
+			break
+			
+	if three_rank == null:
+		return false
+	# added a separate check for the_three
+	else:
+		return true
+		
+func is_the_three(cards):
+	if is_three_of_a_kind(cards):
+		
+		var rank_counts = {}
+		for card in cards:
+			if rank_counts.has(card.rank):
+				rank_counts[card.rank] += 1
+			else:
+				rank_counts[card.rank] = 1
+	
+		var three_rank = null
+		for rank in rank_counts.keys():
+			if rank_counts[rank] == 3:
+				three_rank = rank
+				break
+			
+		if three_rank == null:
+			return false
+		
+		if three_rank == "Paladin":
+			var suits = []
+			for card in cards:
+				if card.rank == "Paladin":
+					suits.append(card.suit)
+				
+			suits.sort()
+		
+			if suits == ["Baezel", "Godrik", "Odessa"]:
+				return true
+			else:
+				return false
+	else:
+		return false
+
+
+	
