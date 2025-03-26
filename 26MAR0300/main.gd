@@ -955,26 +955,32 @@ func calculate_score(played_card_names: Array) -> int:
 		_:
 			push_warning("Unknown hand type in calculate_score match: ", hand_type)
 			card_results = {"chips": 0, "added_mult": 0}
+	
+	var final_base_chips = base_chips # This is an INT
+	var card_results_dict = card_results # This is a DICTIONARY
+	
+	 # --- NEW: Calculate Total Chips and Total Multiplier ---
+	var total_chips = final_base_chips + card_results_dict.get("chips", 0) # Add base chips + chips from cards
+	# Base multiplier is 1, then add the mult from cards
+	var total_mult = 1 + card_results_dict.get("added_mult", 0)
 
-	var initial_total_chips = base_chips + card_results.get("chips", 0)
-	var initial_total_mult = 1 #+ card_results.get("added_mult", 0)
-	
-	#display_message("DEBUG://initial_total_chips: " + str(initial_total_chips) + " and initial_total_mult: " + str(initial_total_mult) + "\n")
-	# ADD IN LOGIC HERE WHEN ADDING IN SPIDER LOGIC
-	# LIKE: var modified_values = apply_spider_effects(hand_cards, hand_type, initial_total_chips, initial_total_mult)
-	# var final_total_chips = modified_values.chips
-	# var final_total_mult = modified_values.mult
-	
-	
-	var final_score = (initial_total_chips * initial_total_mult) * hand_level_mult
+	#display_message("DEBUG: BaseChips=" + str(final_base_chips) +
+					#" CardChips=" + str(card_results_dict.get("chips", 0)) +
+					#" CardAddedMult=" + str(card_results_dict.get("added_mult", 0)))
+	#display_message("DEBUG: TotalChips=" + str(total_chips) +
+					#" TotalMult=" + str(total_mult) +
+					#" LevelMult=" + str(hand_level_mult))
 
-	# LEVELLING UP HAND TYPES
+	# --- Final Score Calculation ---
+	# Apply the Balatro formula: TotalChips * TotalMult * LevelMult
+	var final_score = total_chips * total_mult * hand_level_mult
+
+	#display_message("DEBUG: Final Score Calculation: " + str(total_chips) + " * " +str(total_mult) + " * " + str(hand_level_mult) + " = " + str(final_score))
+
+	# --- Increment Played Count and Check for Level Up ---
 	add_hand_played_count(hand_type)
-	check_organic_level_up(hand_type)  
-	
-	# UPDATE CERBERUS
-	CerberusStats.record_hand_played(final_score, hand_type)
-	
+	check_organic_level_up(hand_type)
+
 	return int(final_score)
 	
 # --- Flush-Related Functions ---
