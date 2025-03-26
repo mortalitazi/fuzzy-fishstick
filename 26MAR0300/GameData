@@ -1,0 +1,477 @@
+extends Node
+ # ALL DICTIONARIES FOR:
+	# DAEMONS
+	# SPIDERS
+	# VENDORS
+	# CARD DATA
+	# FUNCTIONS RELATED TO ABOVE
+	
+###################
+#      CARDS      #
+###################
+	
+# GLOBAL DICTIONARY OF ALL CARDS
+
+var cards = {} 
+	
+	
+####################
+#     SPIDERS      #
+####################
+
+# DICTIONARY
+
+var spiders = {
+	"placeholder": { # template
+		"description": "blahblahblah",
+		"extended description": "yadayadayada",
+		"command": "/spiderplaceholder", # most spiders will run in their use cases; in case it is command-adherent, use this
+		"trigger": [], # what causes the spider to trigger; ex: on hand played, on boss round entered, etc
+		"rarity": "common", # "uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # some spiders are only available as rewards
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 0, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false, # if spider deletes itself after boss round, regardless if used or not
+		"target": "player", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			pass #logic goes here
+			},
+		"Odessa's Heart": {
+		"description": "://odessasheart.spi",
+		"extended description": "The Dragon God, Odessa, blesses her suit with extra scoring. For each Odessa card played, gain +50 chips.",
+		"command": "/odessasheart.spi", # runs on hand played; not needed
+		"trigger": [GlobalEnums.TriggerPhase.POST_SCORE], # triggers on hand played, adds +50 chips for each suit of odessa scored
+		"rarity": 10, 
+		"buyable": true, 
+		"sellable": true, 
+		"tradeable": true, 
+		"credit value": 50, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false,
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Odessa":
+						game.spider_score += 50
+						game.display_message("Odessa adds 50 chips!")
+			else:
+				game.display_message("No hand played yet.")
+			},
+		"Godrik's Law": {
+		"description": "://godrikslaw.spi",
+		"extended description": "The Dragon God, Godrik, grants his suit extra scoring. For each Godrik card played, gain +50 chips.",
+		"command": "/godrikslaw.spi", # runs on hand played; not needed
+		"trigger": [GlobalEnums.TriggerPhase.DURING_SCORE], # triggers on hand played, adds +50 chips for each suit of odessa scored
+		"rarity": 10, 
+		"buyable": true, 
+		"sellable": true, 
+		"tradeable": true, 
+		"credit value": 50, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false,
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Godrik":
+						game.spider_score += 50
+						game.display_message("Godrik adds 50 chips!")
+			else:
+				game.display_message("No hand played yet.")
+			},
+		"Baezel's Love": {
+		"description": "://baezelslove.spi",
+		"extended description": "The Dragon God, Baezel, blesses their suit with extra scoring. For each Baezel card played, gain +50 chips.",
+		"command": "/odessasheart.spi", # runs on hand played; not needed
+		"trigger": [GlobalEnums.TriggerPhase.DURING_SCORE], # triggers on hand played, adds +50 chips for each suit of odessa scored
+		"rarity": 10, 
+		"buyable": true, 
+		"sellable": true, 
+		"tradeable": true, 
+		"credit value": 50, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false,
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Baezel":
+						game.spider_score += 50
+						game.display_message("Baezel adds 50 chips!")
+			else:
+				game.display_message("No hand played yet.")
+			},
+		"Belanger's Safety": { 
+		"description": "://belangerssafety.spi",
+		"extended description": "The Belangers, once human, now roam in their sea as dragons. They protect travellers, as they protect you when you play their suit. They add 2 to the hand's multiplier whenever a card of the Dragons suit is scored.",
+		"command": "/belangerssafety.spi", # most spiders will run in their use cases; in case it is command-adherent, use this
+		"trigger": [GlobalEnums.TriggerPhase.DURING_SCORE], # what causes the spider to trigger; ex: on hand played, on boss round entered, etc
+		"rarity": 8, # "uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # some spiders are only available as rewards
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 100, # for buying, selling, trading
+		"max quantity": 1, # default; disallows players from over-stacking spiders
+		"player quantity": 0, # to track how many a player owns; update when acquired and sold/traded
+		"perm": true, # if the spider persists throughout entire game or not
+		"boss delete": false, # if spider deletes itself after boss round, regardless if used or not
+		"target": "card", # who or what the spider is interacting with
+		"extended use cases": [], # if it can double effect in bosses or whatever
+		"effect": func(game):
+			if game.played_hand:
+				for card in game.scored_cards:
+					if card["rank"] == "Dragons":
+						game.spider_multiplier += 2
+						game.display_message("The Belangers add 2 mult!")
+			else:
+				game.display_message("No hand played yet.")
+			}
+	}
+	
+##################
+#    DAEMONS     #
+##################
+
+# DICTIONARY
+
+var daemons = {
+	"placeholder": { # template
+		"description": "blahblahblah", # basic title to be displayed
+		"extended description": "yadayadayada", # more detail on what it does
+		"command": "/placeholder", #what command to look for to execute daemon
+		"rarity": "common", # "common" = 10, uncommon" = 7, "rare" = 3, "Nell" = 2, "Cerberus" = 1
+		"buyable": true, # if they're only from rewards, false
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 0, # for buying, selling, trading
+		"stackable": true, # can the player have more than one in inventory
+		"max quantity": 2, 
+		"reusable": true, # default to allow for multiple uses if player has more than one copy; daemons are one-time use but special ones from Nell or Cerberus might be reusable and stay in inventory
+		"delete after use": true, #default; false only in very specific cases
+		"use_limit": 1, # if a limit is required per game; higher rarities?
+		"uses": 0, #for tracking how many times it was used; if over 1 and reusable = false, return error/disallow player to acquire
+		"target": "player", # specify who or what the daemon targets upon use. ex: player hand, deck, discards, boss, etc.
+		"extended use cases": [], # if special daemons can be used in multiple ways
+		"effect": func(game):
+			pass #logic goes here
+			},
+		"/vashiiq.dae": {
+		"description": "://vashiiq.dae", # basic title to be displayed
+		"extended description": "Vashii'q levels up a random hand type by one. Use command /vashiiq.dae to execute. \n", # more detail on what it does
+		"command": "/vashiiq.dae", #what command to look for to execute daemon
+		"rarity": 10, #"uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # if they're only from rewards, false
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 20, # for buying, selling, trading
+		"stackable": true, # can the player have more than one in inventory
+		"max quantity": 5, 
+		"reusable": true, # default to allow for multiple uses if player has more than one copy; daemons are one-time use but special ones from Nell or Cerberus might be reusable and stay in inventory
+		"delete after use": true, #default; false only in very specific cases
+		"use_limit": 50, # if a limit is required per game; higher rarities?
+		"uses": 0, #for tracking how many times it was used; if over 1 and reusable = false, return error/disallow player to acquire
+		"target": "hand levels", # specify who or what the daemon targets upon use. ex: player hand, deck, discards, boss, etc.
+		"extended use cases": [], # if special daemons can be used in multiple ways
+		"effect": func(game):
+			var hand_types = game.hand_types.keys()
+			if hand_types.size() > 0:
+				var random_hand_type_name = hand_types[randi() % hand_types.size()]
+				game.hand_data[random_hand_type_name]["level"] += 1
+				game.display_message("Levelled up " + random_hand_type_name + "! \n")
+			else:
+				game.display_message("ERROR: NO HAND TYPES TO LEVEL UP.")
+			},
+		"/bless.dae": {
+		"description": "://bless.dae", # basic title to be displayed
+		"extended description": "Use this code to bless a card with extra chips to add to your score. Use command /bless.dae and add the card number. Example: [/bless.dae 2] \n", # more detail on what it does
+		"command": "/bless.dae", #what command to look for to execute daemon
+		"rarity": 10, #"uncommon", "rare", "Nell", "Cerberus"
+		"buyable": true, # if they're only from rewards, false
+		"sellable": true, # if it can be sold in hub
+		"tradeable": true, # if it can be traded in hub
+		"credit value": 25, # for buying, selling, trading
+		"stackable": true, # can the player have more than one in inventory
+		"max quantity": 10, 
+		"reusable": true, # default to allow for multiple uses if player has more than one copy; daemons are one-time use but special ones from Nell or Cerberus might be reusable and stay in inventory
+		"delete after use": true, #default; false only in very specific cases
+		"use_limit": 100, # if a limit is required per game; higher rarities?
+		"uses": 0, #for tracking how many times it was used; if over 1 and reusable = false, return error/disallow player to acquire
+		"target": "card", # specify who or what the daemon targets upon use. ex: player hand, deck, discards, boss, etc.
+		"extended use cases": [], # if special daemons can be used in multiple ways
+		"effect": func(game):
+			var card_to_upgrade = int(game.prompt) - 1
+			var players_hand = game.displayed_hand
+			var upgraded_card = null
+			
+			#if players_hand.size() > 0: # so they can't use it outside of the round
+				#if card_to_upgrade >= 0 and card_to_upgrade < player_hand.size():
+					#upgraded_card = players_hand[card_to_upgrade]
+					#upgraded_card["chip value"] += 20
+					#game.display_message("Daemon executed successfully! \n")
+					#game.display_message("Selected card now offers " + str(upgraded_card["chip value"]) + " to your score. \n")
+				#else: 
+					#game.display_message("Invalid card number. \n")
+			#else:
+				#game.display_message("No cards in hand.\n")
+			}
+	
+}
+
+##################
+#    VENDORS     #
+##################
+
+# CERBERUS AND NELL
+	# FIXED VENDORS ----- MAIN HUB AND CIPHER'S
+
+var fixed_vendor = { # just for cerberus right now, but might add in more later
+	"Cerberus": {
+		"name": "Cerberus",
+		"info": "",
+		"username": "cerberus",
+		"type": GlobalEnums.VendorTypes.DAEMONS,
+		"database": "", # add in his inv generation code func here; remember he is also in nells hub
+		"intro": "Welcome, ",# + username + ". I am CERBERUS. Do you require some luck? \n",
+		"return": "Welcome back, ",# + username + ". I hope the cards are treating you well. \n",
+		"win_return": "Well played, ",# + username + "! Do you mayhaps need a new daemon or two for your next duel? \n"
+	}
+}
+
+var cipher_vendor = { # yup, just nell
+	"Cipher": {
+		"name": "Nell",
+		"info": "",
+		"username": "technomancer",
+		"type": GlobalEnums.VendorTypes.TRADER_SPIDERS_DAEMONS_CARDS,
+		"database": "", # her specific nell_hub function
+		"intro": "And here you are, ", # + username + ". Welcome to my winners-only hub. You will come here whenever you win a duel. \n",
+		"return_big": "Nice duel! And welcome back and stuff. \n", # if a large margin between boss and player in favour of player ""
+		"return_narrow": "Barely made it through, but you're here. And I've got plenty for you. \n" # if a small margin between player and boss
+	}
+}
+
+# SOMETIMES VENDORS
+	# THE MAIN VENDORS/TRADERS ------ REGULAR HUB
+	
+var sometimes_vendor = { # the main vendors
+	"Reyes": {
+		"name": "Jet Reyes",
+		"info": "Jet Reyes: SV. [redacted; comment: violated my privacy and eyes. -technomancer]", #what's in their profile
+		"username": "bigdeck",
+		"type": GlobalEnums.VendorTypes.TRADER_CARDS,
+		"database": "", #something for jet's inv func
+		# something specific to trading cards?
+		"intro": "Welcome to BIGDECKENERGY. You got cards? Want cards? I got *exactly* what you need, ", # + username + ". \n",
+		"return": "You're back.  Just can't get enough, can you? \n",
+		"win_return": "Look at you, duellist extraordinaire. Need something new for your next duel? \n"
+	},
+	"Razor": {
+		"name": "Taymin Mercer",
+		"info": "Get asked a lot what my username means. It's a waster thing; you wouldn't understand.",
+		"username": "kaafonaa",
+		"type": GlobalEnums.VendorTypes.TRADER_SPIDERS_DAEMONS_CARDS,
+		"database": "", #something for razor's inv func
+		# something specific to trading cards?
+		"intro": "Got some stuff. You need the best? I got the best. \n",
+		"return": "Welcome back, ", # + username + ". \n",
+		"win_return": "Fought like a true huun'jaa... but with cards. Digital cards. Need something? \n"
+	},
+	"Spectre": {
+		"name": "Lincoln",
+		"info": "All my friends are here, so I am as well. Oh, the joy.",
+		"username": "spectre",
+		"type": GlobalEnums.VendorTypes.SPIDERS_DAEMONS,
+		"database": "", #something for linc's inv func
+		"intro": "Greetings, ", # + username + ", and the most sincere salutations. I hope you will find something here to assist you in your endeavours. \n",
+		"return": "You have graced my humble shop once more, ", # + username + ". Please, how may I assist? \n",
+		"win_return": "Well fought, ", # + username + ", and you live to tell the tale. \n"
+	},
+}
+
+# ELITES
+	# MIXED IN WITH THE 'RANDOMISED' VENDORS AT THE REGULAR HUB
+	# FIXED USERNAME, RARER STOCK
+	# PROFILES, CUSTOM GREETING
+	
+var elite_traders = { # appear with the "random" traders at a lower interval
+	"metalmouse": {
+		"username": "metalmouse",
+		"info": "Ey? Why you looking at my profile, mate?",
+		"type": GlobalEnums.VendorTypes.SPIDERS_DAEMONS_CARDS,
+		"database": "", #inflated rarity func for better selection
+		"greeting": "Spiders? Daemons? Pretty cards? \n",
+	},
+	"tokudatonne": {
+		"username": "tokudatonne",
+		"info": "I do have an actual job, I swear.",
+		"type": GlobalEnums.VendorTypes.SPIDERS_DAEMONS,
+		"database": "", #inflated rarity func for better selection
+		"greeting": "Will trade spiders and daemons for coffee. \n",
+	}
+}
+
+#############################################
+
+func _ready():
+	setup_card_definitions()
+	print("GameData Initialized: Card definitions loaded (Enum Rank). Count: ", cards.size())
+
+
+#####################################
+#     CARD DEFINITION FUNCTIONS     #
+#####################################
+			
+func setup_card_definitions():
+# EACH DECK STARTS WITH FOUR EQUAL SUITS
+	var suits = ["odessa", "godrik", "dragons", "baezel"]
+	var ranks = [GlobalEnums.CardRank.TWO, GlobalEnums.CardRank.THREE, GlobalEnums.CardRank.FOUR, GlobalEnums.CardRank.FIVE, GlobalEnums.CardRank.SIX,
+				 GlobalEnums.CardRank.SEVEN, GlobalEnums.CardRank.EIGHT, GlobalEnums.CardRank.NINE, GlobalEnums.CardRank.TEN,
+				 GlobalEnums.CardRank.TEMPLAR, GlobalEnums.CardRank.QUEEN, GlobalEnums.CardRank.KING, GlobalEnums.CardRank.PALADIN]
+	# FOR HAND ANALYSIS:
+	#var rank_values = { "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "Templar": 11, "Queen":12, "King":13, "Paladin":14 }
+	# BASE CHIPS ADDED TO HAND-TYPE SCORE ON PLAY
+	#var chip_values = { "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "Templar": 11, "Queen":12, "King":13, "Paladin":14 }
+	# BASE MULT USED IN HAND CALCULATION
+	# SET TO 1 FOR STANDARD STARTING DECK
+	#var mult_values = { "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1, "10": 1, "Templar": 1, "Queen":1, "King":1, "Paladin":1 }
+	# ACTUALLY MAKING THE DECK; POPULATES THE DECK ARRAY
+	for suit_str in suits:
+		for rank_enum in ranks:
+			var suit_short = "O" # DEFAULT; USED FOR SHORT COMMAND
+			var enum_suit = GlobalEnums.CardSuit.ODESSA # DEFAULT
+			
+			# CONVERT SUIT STRING TO ENUM VALUE
+			if suit_str == "odessa":
+				enum_suit = GlobalEnums.CardSuit.ODESSA
+				suit_short = "O"
+			elif suit_str == "godrik":
+				enum_suit = GlobalEnums.CardSuit.GODRIK
+				suit_short = "G"
+			elif suit_str == "baezel":
+				enum_suit = GlobalEnums.CardSuit.BAEZEL
+				suit_short = "B"
+			elif suit_str == "dragons":
+				enum_suit = GlobalEnums.CardSuit.DRAGONS
+				suit_short = "D"
+			else:
+				push_warning("setup_deck ERROR: SUIT NAME UNKNOWN. \n")
+			
+			var rank_str = ""
+			match rank_enum:
+				GlobalEnums.CardRank.TWO: rank_str = "2"
+				GlobalEnums.CardRank.THREE: rank_str = "3"
+				GlobalEnums.CardRank.FOUR: rank_str = "4"
+				GlobalEnums.CardRank.FIVE: rank_str = "5"
+				GlobalEnums.CardRank.SIX: rank_str = "6"
+				GlobalEnums.CardRank.SEVEN: rank_str = "7"
+				GlobalEnums.CardRank.EIGHT: rank_str = "8"
+				GlobalEnums.CardRank.NINE: rank_str = "9"
+				GlobalEnums.CardRank.TEN: rank_str = "10"
+				GlobalEnums.CardRank.TEMPLAR: rank_str = "templar"
+				GlobalEnums.CardRank.QUEEN: rank_str = "queen"
+				GlobalEnums.CardRank.KING: rank_str = "king"
+				GlobalEnums.CardRank.PALADIN: rank_str = "paladin"
+
+			var card_name = rank_str + "_of_" + suit_str
+			
+			var card_data = {
+				"name": card_name,
+				"suit": enum_suit,
+				"rank": rank_enum,  # Store the *enum* value
+				"value": rank_enum,   # Use the enum value directly!
+				"chip_value": rank_enum,
+				"mult_value": 1, #base is one
+				"short_rank": get_short_rank(rank_enum)
+				}
+
+			cards[card_name] = card_data
+			
+	#########################
+	# CARD HELPER FUNCTIONS #
+	#########################
+	
+	# GET SUIT NAME
+func get_suit_name(suit: int, short_form: bool = false) -> String:
+	
+	match suit:
+		GlobalEnums.CardSuit.ODESSA:
+			return "Odessa" if not short_form else "O"
+		GlobalEnums.CardSuit.GODRIK:
+			return "Godrik" if not short_form else "G"
+		GlobalEnums.CardSuit.BAEZEL:
+			return "Baezel" if not short_form else "B"
+		GlobalEnums.CardSuit.DRAGONS:
+			return "Dragons" if not short_form else "D"
+		_:
+			push_warning("Invalid suit value: ", suit)
+			return "Unknown"
+			
+
+
+	# FORMAT CARD NAME
+func format_card_name(card_name: String, short_suits: bool = false) -> String:
+	var card_data = cards[card_name]
+	var rank = card_data.rank
+	var suit = card_data.suit
+
+	var rank_str = ""
+	if short_suits:
+		rank_str = card_data.short_rank
+	else:
+		match rank:
+			GlobalEnums.CardRank.TWO: rank_str = "2"
+			GlobalEnums.CardRank.THREE: rank_str = "3"
+			GlobalEnums.CardRank.FOUR: rank_str = "4"
+			GlobalEnums.CardRank.FIVE: rank_str = "5"
+			GlobalEnums.CardRank.SIX: rank_str = "6"
+			GlobalEnums.CardRank.SEVEN: rank_str = "7"
+			GlobalEnums.CardRank.EIGHT: rank_str = "8"
+			GlobalEnums.CardRank.NINE: rank_str = "9"
+			GlobalEnums.CardRank.TEN: rank_str = "10"
+			GlobalEnums.CardRank.TEMPLAR: rank_str = "Templar"
+			GlobalEnums.CardRank.QUEEN: rank_str = "Queen"
+			GlobalEnums.CardRank.KING: rank_str = "King"
+			GlobalEnums.CardRank.PALADIN: rank_str = "Paladin"
+
+	var suit_name = get_suit_name(suit, short_suits)
+
+	if short_suits:
+		return rank_str + suit_name
+	else:
+		return rank_str + " of " + suit_name
+		
+		# JUST GRAB SHORT RANK
+func get_short_rank(rank:int) -> String:
+	match rank:
+		GlobalEnums.CardRank.TWO: return "2"
+		GlobalEnums.CardRank.THREE: return "3"
+		GlobalEnums.CardRank.FOUR: return "4"
+		GlobalEnums.CardRank.FIVE: return "5"
+		GlobalEnums.CardRank.SIX: return "6"
+		GlobalEnums.CardRank.SEVEN: return "7"
+		GlobalEnums.CardRank.EIGHT: return "8"
+		GlobalEnums.CardRank.NINE: return "9"
+		GlobalEnums.CardRank.TEN: return "10"
+		GlobalEnums.CardRank.TEMPLAR: return "T"
+		GlobalEnums.CardRank.QUEEN: return "Q"
+		GlobalEnums.CardRank.KING: return "K"
+		GlobalEnums.CardRank.PALADIN: return "P"
+		_:
+			push_warning("Invalid Rank: ", rank)
+			return "?"
+			
