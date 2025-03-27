@@ -35,8 +35,11 @@ var credits = 0 # PLAYERS STARTS WITH NOTHING IN ACCOUNT
 
 		# DATABASE: INCLUDED FOR TESTING
 var player_daemons = ["/placeholder.dae", "/vashiiq.dae", "/bless.dae"] # DAEMONS IN DATABASE
-var player_spiders = [] # SPIDERS IN DATABASE
-			# CREATE FUNC FOR DISPLAYING DATABASE USING COMMAND "DATABASE"
+var player_spiders = ["placeholder"] # SPIDERS IN DATABASE
+			# SPIDER EFFECT VARIABLES
+var spider_chip_bonus = 0
+var spider_mult_bonus = 0
+var spider_mult_multiplier = 1.0
 
 	# SCALING VARIABLES
 var round_number = 1 # ROUND NUMBER COUNT FOR SCALING
@@ -106,6 +109,7 @@ var boss_data = {
 }
 
 # ENUMS
+# NOT IN USE AT THIS TIME
 enum GameState { # TRACKS GAMESTATE IN GAMELOOP
 	START,
 	GETUSERNAME,
@@ -293,7 +297,31 @@ func process_command(command: String):
 				
 			else:
 				execute_daemon(daemon_to_execute)
+				
+# SPIDER FUNCTION: CALL WITH THE ENUM AT KEY POINTS IN GAME LOOP
+func apply_spider_effects(trigger: GlobalEnums.TriggerPhase, context_data: Dictionary = {}):
+	# display_message("DEBUG: Applying Spiders for Phase: " + str(trigger)) # Optional Debug
+
+	for spider_key in player_spiders:
+		if GameData.spiders.has(spider_key):
+			var spider_data = GameData.spiders[spider_key]
+			var trigger_list = spider_data.get("trigger", []) # Get the list of triggers
+
+			if trigger in trigger_list: # Check if this spider triggers on this phase
+				if spider_data.has("effect") and spider_data.effect is Callable:
+					var effect_func = spider_data.effect
+					display_message("DEBUG: Triggering Spider: " + spider_key) # Debug
+					 # Call the effect, passing self and context
+					 # The effect function might modify game state directly (e.g., player_hand)
+					 # or modify calculation variables (e.g., spider_chip_bonus)
+					effect_func.call(self, context_data)
+				else:
+					push_warning("Spider " + spider_key + " has trigger but no valid effect.")
+		else:
+			push_warning("Player has unknown spider key: " + spider_key)
 			
+			
+# DAEMON FUNC
 func execute_daemon(command: String, daemon_args: String = ""):
 	if not GameData.daemons.has(command):
 		display_message("DAEMON NOT FOUND. \n")
@@ -505,6 +533,9 @@ func start_game():
 	set_process(true) #enable processing
 
 func play_round():
+	# SPIDERS
+	apply_spider_effects(GlobalEnums.TriggerPhase.ROUND_START, {})
+	
 	# UPDATE CERBERUS
 	CerberusStats.increment_round()
 	# CALC SCORE BASED ON SCALING
@@ -561,6 +592,7 @@ func on_hand_played():
 
 	if hands >= 0 and score_to_beat <= score:
 		prompt = null
+		apply_spider_effects(GlobalEnums.TriggerPhase.ROUND_FINISH, {})
 		round_number += 1
 		# UI UPDATE
 		roundlabel.clear()
@@ -585,32 +617,26 @@ func on_hand_played():
 			
 func handle_win():
 	# SHUFFLE CARDS BACK INTO DECK
-		# PLAYER HAND
-	#display_message("DEBUG: handle_win: Player hand size BEFORE adding to discard: " + str(player_hand.size()))
-	for card_dict in player_hand: # Iterate through DICTIONARIES in player_hand
-		if card_dict.has("name"):
-			discard_pile.append(card_dict.name) # Append the card's NAME string
-		else:
-			push_warning("Card dictionary in player_hand missing 'name' key!")
-	player_hand.clear() # Clear the hand now that names are safe in discard
-	#display_message("DEBUG: handle_win: Discard pile size AFTER adding hand: " + str(discard_pile.size()))
- # Clear the hand now that cards are safe in discard
+	# 1. Add remaining card DICTIONARIES from player_hand to the discard_pile
+	display_message("DEBUG: handle_win: Player hand size BEFORE adding to discard: " + str(player_hand.size()))
+	for card_dict in player_hand:
+		discard_pile.append(card_dict) # Append the DICTIONARY
+	player_hand.clear()
+	display_message("DEBUG: handle_win: Discard pile size AFTER adding hand: " + str(discard_pile.size()))
 
-		# DISCARD PILE
-   #    (This part should be correct - discard_pile now has only names)
-	#display_message("DEBUG: handle_win: Deck size BEFORE adding back: " + str(deck.size()))
-	for card_name in discard_pile:
-		if GameData.cards.has(card_name):
-			# Get the BASE definition and add a FRESH COPY back to the deck.
-			# This discards any in-run modifications when shuffling back.
-			# If you WANT to keep modifications, you'd need a different system.
-			deck.append(GameData.cards[card_name].duplicate(true))
-		else:
-			push_warning("Trying to add unknown card back to deck: " + card_name)
+	# 2. Add copies of card DICTIONARIES from discard_pile back to deck
+	display_message("DEBUG: handle_win: Deck size BEFORE adding back: " + str(deck.size()))
+	for card_dict in discard_pile: # Iterate through DICTIONARIES in discard_pile
+		# Add a DEEP COPY of the (potentially modified) dictionary back to the deck
+		deck.append(card_dict.duplicate(true))
+		# NO lookup in GameData needed here, we want the modified copy
 
-	#display_message("DEBUG: handle_win: Deck size AFTER adding back: " + str(deck.size()))
+	display_message("DEBUG: handle_win: Deck size AFTER adding back: " + str(deck.size()))
 
-	reset_discard_pile()
+	# 3. Clear the discard pile
+	reset_discard_pile() # discard_pile.clear()
+	display_message("DEBUG: handle_win: Discard pile size AFTER reset: " + str(discard_pile.size()))
+
 	
 	# CREDITS REWARDED
 	var rewarded_creds = calc_round_reward()
@@ -728,6 +754,7 @@ func deal_hand(hand_size : int):
 	for _i in range(hand_size):
 		if deck.size() > 0:
 			var card_dict_copy = deck.pop_back() # Get the dictionary copy
+			#display_message("DEBUG: deal_hand: Appending type " + str(typeof(card_dict_copy)) + ", Value: " + str(card_dict_copy) + "\n")
 			player_hand.append(card_dict_copy) # Append the DICTIONARY
 		else:
 			display_message("Deck is empty!\n")
@@ -736,6 +763,7 @@ func deal_hand(hand_size : int):
 	# GENERATE WHAT'S DISPLAYED TO USER
 func generate_displayed_hand():
 	displayed_hand.clear()
+
 	var sorted_card_names = [] # Initialize empty array for card names
 
 	# --- Choose the sorting function based on the mode ---
@@ -756,10 +784,13 @@ func generate_displayed_hand():
 		
 	# DRAW CARDS FROM DECK TO HAND
 func draw_cards(num_cards):
+	#print("DRAW CARDS RUNNING")
 	for _i in range(num_cards):
 		if deck.size() > 0:
 			var card_dict_copy = deck.pop_back()
+			#print("DEBUG: draw_cards: Appending type " + str(typeof(card_dict_copy)) + ", Value: " + str(card_dict_copy) + "\n")
 			player_hand.append(card_dict_copy) # Append the DICTIONARY
+			#print("DEBUG draw_cards: Appended type ", typeof(card_dict_copy))
 		else:
 			display_message("Deck is empty! \n")
 			break  # Exit if the deck is empty
@@ -768,8 +799,18 @@ func draw_cards(num_cards):
 
 	# SORT HAND BY RANK
 func sort_hand_by_rank(hand: Array) -> Array:
+		# --- ADD THIS DEBUG ---
+	#print("DEBUG: sort_hand_by_rank: Received hand[0] type=", typeof(hand[0]) if not hand.is_empty() else "EMPTY")
+	#if not hand.is_empty() and typeof(hand[0]) != TYPE_DICTIONARY:
+		#print("CRITICAL: sort_hand_by_rank received non-Dictionary!")
+		#print("Received hand content: " + str(hand))
+		#return []
+		 # You might want to 'return []' here to prevent the crash during debugging
+		 # return []
+	# --- END DEBUG ---
 	var sortable_hand = []
 	# Iterate through the card DICTIONARIES in the input 'hand'
+	#print("sort hand by rank running")
 	for card_dict in hand:
 		# Append the card NAME and card VALUE (for sorting)
 		sortable_hand.append([card_dict.name, card_dict.value])
@@ -836,21 +877,27 @@ func play_cards(card_numbers: Array):
 			score += score_this_hand
 			
 			var new_hand = [] # This will hold the DICTIONARIES we keep
-			for card_dict in player_hand: # Iterate through the DICTIONARIES in player_hand
-				var current_card_name = card_dict.name # Get the name from the dictionary
-				if current_card_name not in cards_to_play: # Check if NAME is NOT in the list of names to play
-					new_hand.append(card_dict) # Keep the DICTIONARY
+		   # --- Remove played cards from hand ---
+	
+			for card_dict in player_hand: # Iterate player_hand dictionaries
+				if card_dict.name not in cards_to_play:
+					new_hand.append(card_dict) # Keep the dictionary
 				else:
-					discard_pile.append(current_card_name) # Add the NAME to discard pile (Correct!)
-			player_hand = new_hand # player_hand now contains only the kept DICTIONARIES
+			# ADD THE DICTIONARY to discard_pile
+					discard_pile.append(card_dict)
+			player_hand = new_hand
 			hands -= 1
+			var num_to_draw = cards_to_play.size()
+			#print("DEBUG: About to call draw_cards(" + str(num_to_draw) + ")") # DEBUG
 			draw_cards(cards_to_play.size())
 			on_hand_played() # REMEMBER TO CALL THE DAMN FUNCTION
+			return
 			
 		else:
 			display_message("NO HANDS REMAINING. \n")
 			game_state = GameState.LOSE
 			play_round()
+			return
 
 func discard_cards(card_numbers: Array):
 	var cards_to_discard = []
@@ -870,12 +917,13 @@ func discard_cards(card_numbers: Array):
 		
 	if cards_to_discard.size() > 0:
 		var new_hand = [] # This will hold the DICTIONARIES we keep
-		for card_dict in player_hand: # Iterate through the DICTIONARIES in player_hand
-			var current_card_name = card_dict.name # Get the name from the dictionary
-			if current_card_name not in cards_to_discard: # Check if NAME is NOT in the list of names to discard
-				new_hand.append(card_dict) # Keep the DICTIONARY
+		for card_dict in player_hand: # Iterate player_hand dictionaries
+			if card_dict.name not in cards_to_discard:
+				new_hand.append(card_dict) # Keep the dictionary
 			else:
-				discard_pile.append(current_card_name) # Add the NAME to discard pile (Correct!)
+			# ADD THE DICTIONARY to discard_pile
+				discard_pile.append(card_dict)
+
 		player_hand = new_hand # player_hand now contains only the kept DICTIONARIES
 
 		discards -= 1
@@ -1029,11 +1077,12 @@ func display_help():
 	# DISCARD PILE
 func display_discard_pile():
 	if discard_pile.size() > 0:
-		display_message("CARDS IN DISCARD PILE: \n")
-		for card_name in discard_pile:
-			display_message(GameData.format_card_name(card_name, use_short_suits) + "\n")
+		display_message("Cards in discard pile: \n")
+		for card_dict in discard_pile: # Iterate DICTIONARIES
+			# Get name and format it using GameData function
+			display_message(GameData.format_card_name(card_dict.name, use_short_suits) + "\n")
 	else:
-		display_message("NO CARDS IN DISCARD PILE. \n")
+		display_message("No cards in discard pile yet. \n")
 
 	# DEFAULT MESSAGE IN TERMINAL
 func display_message(message):
@@ -1172,6 +1221,11 @@ func analyze_hand(played_cards: Array) -> GlobalEnums.HandType:
 	
 # CALCULATE SCORE: TAKES CARDS AND RUNS THROUGH OTHER FUNCS
 func calculate_score(played_card_names: Array) -> int:
+	# RESET SPIDER-SPECIFIC VAR
+	spider_chip_bonus = 0
+	spider_mult_bonus = 0
+	spider_mult_multiplier = 1.0
+	
 	scored_cards.clear()  # CLEAR SCORED CARDS FROM PREVIOUS
 	# FINDING HAND TYPE + ANALYSE
 	var hand_type = analyze_hand(played_card_names)
@@ -1192,6 +1246,10 @@ func calculate_score(played_card_names: Array) -> int:
 			hand_cards.append(GameData.cards[card_name])
 		else:
 			push_warning("Card name not found in 'cards' dictionary during score calc: " + card_name)
+
+	# PRESCORE SPIDERS
+	apply_spider_effects(GlobalEnums.TriggerPhase.PRE_SCORE, {"hand": hand_cards, "type": hand_type})
+
 
 # HIGHEST CARD COUNT TO LOWEST
 	var card_results = {"chips": 0, "added_mult": 0}
@@ -1217,32 +1275,34 @@ func calculate_score(played_card_names: Array) -> int:
 			push_warning("Unknown hand type in calculate_score match: ", hand_type)
 			card_results = {"chips": 0, "added_mult": 0}
 	
-	var final_base_chips = base_chips # This is an INT
-	var card_results_dict = card_results # This is a DICTIONARY
-	
-	 # --- NEW: Calculate Total Chips and Total Multiplier ---
-	var total_chips = final_base_chips + card_results_dict.get("chips", 0) # Add base chips + chips from cards
-	# Base multiplier is 1, then add the mult from cards
-	var total_mult = 1 * card_results_dict.get("added_mult", 1)
+	var initial_total_chips = base_chips + card_results.get("chips", 0)
+	var initial_total_mult = 1 * card_results.get("added_mult", 1)
 
-	#display_message("DEBUG: BaseChips=" + str(final_base_chips) +
-					#" CardChips=" + str(card_results_dict.get("chips", 0)) +
-					#" CardAddedMult=" + str(card_results_dict.get("added_mult", 0)))
-	#display_message("DEBUG: TotalChips=" + str(total_chips) +
-					#" TotalMult=" + str(total_mult) +
-					#" LevelMult=" + str(hand_level_mult))
+	# --- DURING_SCORE SPIDERS (Might modify initial_total_chips/mult) ---
+	# This timing might need adjustment based on exact effect (e.g., modify card before calc?)
+	var during_score_context = {"hand": hand_cards, "type": hand_type, "current_chips": initial_total_chips, "current_mult": initial_total_mult}
+	apply_spider_effects(GlobalEnums.TriggerPhase.DURING_SCORE, during_score_context)
+	# Spiders called by apply_spider_effects might modify global spider_chip/mult_bonus vars
+	# OR they might modify the context dictionary if passed by reference (more complex)
 
-	# --- Final Score Calculation ---
-	# Apply the Balatro formula: TotalChips * TotalMult * LevelMult
-	var final_score = total_chips * total_mult * hand_level_mult
+	# --- Combine base, cards, and spider bonuses ---
+	var final_total_chips = initial_total_chips + spider_chip_bonus
+	var final_total_mult = initial_total_mult + spider_mult_bonus # Additive first
+	final_total_mult *= spider_mult_multiplier # Then multiplicative
 
-	#display_message("DEBUG: Final Score Calculation: " + str(total_chips) + " * " +str(total_mult) + " * " + str(hand_level_mult) + " = " + str(final_score))
+	# --- POST_SCORE SPIDERS (After base calc, before level mult?) ---
+	var post_score_context = {"hand": hand_cards, "type": hand_type, "score_chips": final_total_chips, "score_mult": final_total_mult}
+	apply_spider_effects(GlobalEnums.TriggerPhase.POST_SCORE, post_score_context)
+	# Spiders might modify final_total_chips/mult again here OR modify global score directly
 
-	# --- Increment Played Count and Check for Level Up ---
+	# --- Final Score ---
+	var final_score = final_total_chips * final_total_mult * hand_level_mult
+
 	add_hand_played_count(hand_type)
 	check_organic_level_up(hand_type)
 
 	return int(final_score)
+
 	
 # --- Flush-Related Functions ---
 
@@ -1634,18 +1694,24 @@ func calc_odessas_house(fcards: Array) -> Dictionary:
 	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
 	
 	
-func calc_high_card(fcards: Array) -> Dictionary:
+func calc_high_card(cards_played: Array) -> Dictionary:
 	var chips_from_cards = 0
 	var added_mult_from_cards = 0
-	if fcards.size() > 0:
-		var sorted_cards = sort_hand_by_rank([fcards[0].name]) #sort for highest
-		var highest_card_name = sorted_cards[sorted_cards.size() -1] #get last
-		var highest_card = fcards[0]
-		for card in fcards: #find highest in played cards.
-			if card.name == highest_card_name:
-				highest_card = card
-		scored_cards.append(highest_card.name)
-		chips_from_cards += highest_card.chip_value
-		added_mult_from_cards += highest_card.mult_value
+
+	if cards_played.is_empty():
+		return {"chips": 0, "added_mult": 0}
+
+	# Find the single highest-ranking card among those played
+	var highest_card = cards_played[0] # Start assuming the first is highest
+	for i in range(1, cards_played.size()):
+		if cards_played[i].value > highest_card.value:
+			highest_card = cards_played[i]
+
+	# Score only that highest card
+	scored_cards.append(highest_card.name) # Track the scoring card
+	chips_from_cards += highest_card.chip_value
+	# Assuming mult_value is +Mult bonus
+	added_mult_from_cards += highest_card.mult_value
+
 	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
 	
