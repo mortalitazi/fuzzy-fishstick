@@ -1,0 +1,155 @@
+# CERBERUS' TRACKING
+#CerberusStats
+
+extends Node
+
+# Basic Stats Examples
+var rounds_played: int = 0
+var hands_played: int = 0
+var total_score_accumulated: int = 0 # Use float if scores get huge
+var credits_earned: int = 0
+var credits_spent: int = 0 # For later
+var hands_won: int = 0
+var hands_lost: int = 0
+# Could add counts for specific hand types played
+var hand_type_counts: Dictionary = {}
+
+var use_suit_colors:bool = false
+
+func _ready():
+	# Initialize hand_type_counts dictionary
+	for hand_type_value in GlobalEnums.HandType.values():
+		hand_type_counts[hand_type_value] = 0
+
+func increment_round():
+	rounds_played += 1
+
+func record_hand_played(final_score: int, hand_type: GlobalEnums.HandType):
+	hands_played += 1
+	total_score_accumulated += final_score
+	if hand_type_counts.has(hand_type):
+		hand_type_counts[hand_type] += 1
+	else:
+		push_warning("Attempted to record unknown hand type: " + str(hand_type))
+
+
+func record_win(credits_reward: int):
+	hands_won += 1
+	credits_earned += credits_reward
+
+func record_loss():
+	hands_lost += 1
+
+# Add functions to get specific stats if needed
+func get_stat(stat_name: String):
+	match stat_name.to_lower():
+		"rounds": return rounds_played
+		"wins": return hands_won
+		"losses": return hands_lost
+		"total_score": return total_score_accumulated
+		# Add more as needed
+		_:
+			push_warning("Tried to get unknown stat: " + stat_name)
+			return null
+
+###########################
+# SAVE AND LOAD FUNCTIONS #
+###########################
+
+const SAVE_FILE_PATH = "user://profile.save" # Defines where the save file goes
+
+func save_profile():
+	var config = ConfigFile.new()
+
+	# --- Save CerberusStats Variables ---
+	config.set_value("Stats", "rounds_played", rounds_played)
+	config.set_value("Stats", "hands_played", hands_played)
+	config.set_value("Stats", "total_score_accumulated", total_score_accumulated)
+	config.set_value("Stats", "credits_earned", credits_earned)
+	config.set_value("Stats", "credits_spent", credits_spent)
+	config.set_value("Stats", "hands_won", hands_won)
+	config.set_value("Stats", "hands_lost", hands_lost)
+
+	# Save hand type counts (convert enum keys to strings or ints)
+	var hand_counts_save = {}
+	for hand_type_enum in hand_type_counts:
+		hand_counts_save[int(hand_type_enum)] = hand_type_counts[hand_type_enum]
+	config.set_value("Stats", "hand_type_counts", hand_counts_save)
+
+	# --- Save Data from main.gd ---
+	# Get reference to the main node (adjust path if needed)
+	var main_node = get_tree().get_root().get_node("Main") # Assumes your root node is named "Main"
+	if main_node:
+		config.set_value("Profile", "username", main_node.username)
+		config.set_value("Profile", "credits", main_node.credits)
+		config.set_value("Profile", "hub_visits", main_node.hub_visits)
+		# Add any other persistent 'main_node' variables here (e.g., unlocks)
+	else:
+		push_warning("Could not find main node to save profile data.")
+
+	# --- Save Hand Levels (If Persistent - Modify if they reset) ---
+	# If levels ARE persistent:
+	# var hand_levels_save = {}
+	# if main_node and main_node.has("hand_data"):
+	#     for hand_type_enum in main_node.hand_data:
+	#         hand_levels_save[int(hand_type_enum)] = main_node.hand_data[hand_type_enum].get("level", 1)
+	# config.set_value("HandLevels", "levels", hand_levels_save)
+
+
+	# --- Write to File ---
+	var err = config.save(SAVE_FILE_PATH)
+	if err != OK:
+		push_error("Error saving profile: " + str(err))
+
+func load_profile():
+	var config = ConfigFile.new()
+	var err = config.load(SAVE_FILE_PATH)
+
+	if err != OK:
+		if err == ERR_FILE_NOT_FOUND:
+			print("No profile save file found. Starting fresh.")
+			# Initialize defaults if needed (or rely on initial variable values)
+		else:
+			push_error("Error loading profile: " + str(err))
+		return # Don't try to load if file error
+
+	# --- Load CerberusStats Variables ---
+	rounds_played = config.get_value("Stats", "rounds_played", 0)
+	hands_played = config.get_value("Stats", "hands_played", 0)
+	total_score_accumulated = config.get_value("Stats", "total_score_accumulated", 0)
+	credits_earned = config.get_value("Stats", "credits_earned", 0)
+	credits_spent = config.get_value("Stats", "credits_spent", 0)
+	hands_won = config.get_value("Stats", "hands_won", 0)
+	hands_lost = config.get_value("Stats", "hands_lost", 0)
+
+	# Load hand type counts
+	var hand_counts_load = config.get_value("Stats", "hand_type_counts", {})
+	hand_type_counts.clear() # Clear existing before loading
+	for hand_type_int_str in hand_counts_load:
+		 # Convert loaded string key back to int for enum matching
+		var hand_type_int = int(hand_type_int_str)
+		if GlobalEnums.HandType.has(hand_type_int): # Check if valid enum value
+			hand_type_counts[hand_type_int] = hand_counts_load[hand_type_int_str]
+		else:
+			push_warning("Loaded invalid hand type count key: " + hand_type_int_str)
+
+	# --- Load Data into main.gd ---
+	var main_node = get_tree().get_root().get_node("Main") # Adjust path
+	if main_node:
+		main_node.username = config.get_value("Profile", "username", null)
+		main_node.credits = config.get_value("Profile", "credits", 0)
+		main_node.hub_visits = config.get_value("Profile", "hub_visits", 0)
+		# Load other persistent 'main_node' variables
+	else:
+		push_warning("Could not find main node to load profile data.")
+
+	# --- Load Hand Levels (If Persistent) ---
+	# If levels ARE persistent:
+	# if main_node and main_node.has("hand_data"):
+	#     var hand_levels_load = config.get_value("HandLevels", "levels", {})
+	#     for hand_type_int_str in hand_levels_load:
+	#          var hand_type_int = int(hand_type_int_str)
+	#          if main_node.hand_data.has(hand_type_int):
+	#              main_node.hand_data[hand_type_int]["level"] = hand_levels_load[hand_type_int_str]
+
+	print("Profile loaded successfully.")
