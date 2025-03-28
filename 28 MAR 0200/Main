@@ -1,0 +1,1815 @@
+extends Control
+
+# UI
+@onready var displayed_message = $WINDOW/TERMINAL
+@onready var user_input = $WINDOW/COMMANDLINE
+@onready var submit_button = $WINDOW/SUBMIT
+# TIMER FOR SIMULATING WAIT TIME: 1s
+@onready var wait = $WAITTIMER
+# TOP OF SCREEN FOR HUB INFO AND ETC
+@onready var topbar = $WINDOW/TOPSCREEN
+# LABELS ON RIGHT SIDE OF UI FOR UPDATING INFO
+@onready var roundlabel = $VBoxContainer/HBoxContainer2/VBoxContainer/ROUND
+@onready var bosslabel = $VBoxContainer/HBoxContainer2/VBoxContainer2/BOSS
+@onready var scoretblabel = $VBoxContainer/SCORETOBEAT
+@onready var roundscorelabel = $VBoxContainer/ROUNDSCORE
+@onready var handslabel = $VBoxContainer/HBoxContainer/VBoxContainer2/HANDS
+@onready var discardslabel = $VBoxContainer/HBoxContainer/VBoxContainer/DISCARDS
+@onready var creditslabel = $VBoxContainer/CREDITS
+# SCROLLABLE DATABASE SO PLAYER CAN SEE THEIR INV EASILY
+@onready var uidatabase = $VBoxContainer/DATABASE
+
+# GAME LEVEL VARIABLES
+var game_state = GlobalEnums.GameState.GETUSERNAME # STORES GAMESTATE FOR LOOP
+var waiting = false # USED TO WAIT FOR PLAYER INPUT
+var prompt = null # USED BY PROCESS INPUT FOR PASSING INPUT SHORTS
+var deck = [] # THE PLAYER'S DECK OF CARDS; ARRAY OF CARD DICTIONARIES
+
+	# PLAYER SPECIFIC
+var username = null # SET USERNAME IN GAME START: STRING
+var player_hand_size = 8 # HOW MANY CARDS TO DRAW TO HAND
+var credits = 0 # PLAYERS STARTS WITH NOTHING IN ACCOUNT
+
+		# DATABASE
+			# DAEMONS HOLDS *COMMANDS* FOR PLAYER TO SEE EASILY IN UI
+var player_daemons = ["/placeholder.dae", "/vashiiq.dae", "/bless.dae", "/peek.dae", "/overclock.dae"] # DAEMONS IN DATABASE
+			# SPIDERS ARE FOR GAME TO REF AND FOR A LIST IN UI
+var player_spiders = ["placeholder", "odessasheart", "baezelslove", "godrikslaw", "belangerssafety"] # SPIDERS IN DATABASE
+
+			# SPIDER EFFECT VARIABLES
+var spider_chip_bonus = 0
+var spider_mult_bonus = 0
+var spider_mult_multiplier = 1.0
+
+			# DAEMON EFFECT VARIABLES
+var temporary_card_effects = {} # card_name, Value
+
+	# SCALING VARIABLES
+var round_number = 1 # ROUND NUMBER COUNT FOR SCALING
+var boss_number = 0 # NUMBER OF BOSSES BEATEN FOR SCALING
+
+	# ROUND SPECIFIC
+var discard_pile = [] # RESETS AT END OF ROUND
+var player_hand = [] # UNSORTED PLAYER HAND
+var displayed_hand = [] # SORTED HAND THAT IS DISPLAYED
+var selected_cards = [] # CARDS PLAYER SELECTS WITH PLAY/DISCARD/DAEMON
+var scored_card_dicts = [] # ONLY STORES CARDS (Dictionary) THAT WERE SCORED AFTER PLAY
+var score = 0 # ROUND SCORE
+
+var hands = 10 
+var base_hands = 4 # DEFAULT AMOUNT OF HANDS PER ROUND
+var discards = 10 
+var base_discards = 2 # DEFAULT AMOUNT OF DISCARDS PER ROUND
+
+	# COMMAND SPECIFIC
+var use_short_suits = true # FOR SHORTENING DISPLAYED NAMES OF CARDS
+var horizontal = true
+var sort_rank = true
+
+		# COMMAND DICTIONARY (HELP)
+var commands = {
+	# INFORMATION
+	"HELP": "displays this help menu. \n",
+	"INFO": "displays detailed information. \n",
+	"INFO usage": "info [type] [name/number] \n",
+	"INFO types main": "card, daemon, spider,\n",
+	"INFO types other": "vendor, handtype. \n",
+	# BASIC PLAY
+	"PLAY": "plays (<= 5) selected card(s). \n",
+	"PLAY format": "format like: [play 1 2 3]. \n",
+	"DISCARD": "discards (<=5) selected card(s). \n",
+	"DISCARD format": "format like: [discard 4 5 6]. \n",
+	# DECK, HAND, AND DISCARD PILE
+	"DECK": "displays your deck. \n",
+	"DISCARD PILE": "displays your discard pile. \n",
+	"HAND": "displays your drawn hand. \n",
+	# INVENTORY: DATABASE AND CREDITS
+	"DATABASE": "displays your database. \n",
+	"CREDITS": "displays your credits amount. \n",
+	# DISPLAY AND UI
+	"SET SHORT": "shortens suit and rank names. \n",
+	"SET LONG": "lengthens suit and rank names. \n",
+	"SORT SUIT": "sorts your hand with their suits. \n",
+	"SORT RANK": "sorts your hand with their rank. \n",
+	"HORIZON": "displays cards in hand horizontally. \n",
+	"VERTICAL": "displays cards in hand vertically. \n",
+	"COLORS ON": "sets suits colors on. \n",
+	"COLORS OFF": "sets suits colours off. \n"
+}
+
+# ROUND REWARDS
+var round_rewards = {
+	[0, 1]: 50,
+	[0, 2]: 75,
+	[0, 3]: 100,
+	[1, 4]: 125,
+	# ... etc.
+}
+
+# BOSS DATA
+var boss_data = {
+	0: {"multiplier": 1.5, "name": "Weak Boss"},  # Example
+	1: {"multiplier": 2.0, "name": "Medium Boss"},
+	2: {"multiplier": 3.0, "name": "Strong Boss"},
+	# ... Add more bosses as needed
+}
+
+# ON GAME START
+func _ready() -> void:
+	randomize()
+	CerberusStats.load_profile()
+	setup_deck()
+	if username == null:
+		start_game()
+	else:
+		display_message("WELCOME BACK " + username + "\n")
+		game_state = GlobalEnums.GameState.PLAYING
+		play_round()
+	game_loop()
+
+# FUNCS NOT IN USE RIGHT NOW:
+func _process(delta: float) -> void:
+	pass
+	
+func game_loop():
+	while game_state == GlobalEnums.GameState.PLAYING:
+		on_hand_played()
+
+	# ON SUBMIT BUTTON PRESSED
+
+# GAME START AND SIGN IN
+func start_game():
+	setup_deck()
+	reset_hand_levels()
+	topbar.clear()
+	topbar.add_text("SSNN:NODE::" + str(randi_range(1234, 7777))) # RANDOMISES TOP BAR NUMBER
+	display_message("WELCOME TO THE /EXECUTE_DUEL NODE ON THE SSNN. \n")
+	display_message("PLEASE SIGN IN WITH YOUR USERNAME: \n")
+	game_state = GlobalEnums.GameState.GETUSERNAME # USED IN PROCESS COMMAND
+	set_process(true)
+
+# MAIN FUNC FOR STARTING A NEW *REGULAR* ROUND
+# NOT FOR *BOSSES*
+func play_round():
+	# SPIDERS
+	apply_spider_effects(GlobalEnums.TriggerPhase.ROUND_START, {})
+	
+	# UPDATE CERBERUS
+	CerberusStats.increment_round()
+	# CALC SCORE BASED ON SCALING
+	var score_to_beat = calculate_score_scaling()
+	# UI UPDATE
+	scoretblabel.clear()
+	scoretblabel.add_text(str(score_to_beat))
+	roundlabel.clear()
+	roundlabel.add_text(str(round_number))
+	update_database_panel()
+	# RESET DISCARD PILE FOR SECURITY
+	reset_discard_pile()
+	
+	# BASIC SETUP
+	score = 0
+	hands = base_hands
+	discards = base_discards
+	
+	# PUTS STUFF IN UI
+	roundscorelabel.clear()
+	roundscorelabel.add_text(str(score))
+	bosslabel.clear()
+	bosslabel.add_text(str(boss_number))
+	creditslabel.clear()
+	creditslabel.add_text(str(credits))
+	
+	# UI UPDATE
+	discardslabel.clear()
+	handslabel.clear()
+	discardslabel.add_text(str(discards))
+	handslabel.add_text(str(hands))
+	
+	# SHUFFLE AND DEAL
+	shuffle_deck()
+	deal_hand(player_hand_size)
+	
+	# MESSAGES TO PLAYER ON BASIC INFO
+	display_message("\n")
+	display_message("ROUND: " + str(round_number) + "\n")
+	display_message("SCORE TO BEAT: " + str(score_to_beat) + "\n")
+	display_message("HANDS: " + str(hands) + "\n")
+	display_message("DISCARDS: " + str(discards) + "\n")
+	# DISPLAYING HAND
+	generate_displayed_hand()
+	display_hand()
+	# *****MOVES TO PROCESS COMMAND AND ON_HAND_PLAYED*****
+
+# THIS RUNS AFTER PROCESS_COMMAND TAKES IN THE PLAYER INPUT
+# DURING ROUND, ON [PLAY] COMMAND
+func on_hand_played():
+	var score_to_beat = calculate_score_scaling()
+	
+# DETERMINE IF PLAYER WINS, LOSES, OR CAN KEEP GOING
+	
+# IF THEY HAVE SCORED ENOUGH TO WIN
+	if hands >= 0 and score_to_beat <= score:
+		# SPIDER TRIGGER
+		apply_spider_effects(GlobalEnums.TriggerPhase.ROUND_FINISH, {})
+		
+		round_number += 1
+		
+		# UI UPDATE
+		roundlabel.clear()
+		roundlabel.add_text(str(round_number))
+		
+		# MOVE TO WIN STATE + FUNC
+		game_state = GlobalEnums.GameState.WIN
+		handle_win()
+		
+# IF THEY NEED TO PLAY MORE HANDS TO WIN
+	elif hands > 0 and score_to_beat >= score:
+		var remaining_score = score_to_beat - score
+		# UI UPDATE
+		handslabel.clear()
+		handslabel.add_text(str(hands))
+		display_message("HAND SCORE: " + str(score) + "\n")
+		display_message("SCORE TO BEAT: " + str(score_to_beat) + "\n")
+		display_message("REMAINING SCORE: " + str(remaining_score) + "\n")
+	else: # LOSE STATE
+		display_message("ERROR: NO HANDS REMAINING \n")
+		display_message("TRY AGAIN \n")
+		round_number = 1
+		game_state = GlobalEnums.GameState.LOSE
+
+# FUNCTION CALLED ON PLAYER WIN
+# DEFAULT WHEN WIN IS A ROUND *NOT* A BOSS
+# PROBABLY A DIFFERENCE
+# MIGHT JUST ADD TO THESE HANDLE_ FUNCS
+func handle_win():
+	# SHUFFLE CARDS BACK INTO DECK
+	# 1. Add remaining card DICTIONARIES from player_hand to the discard_pile
+	#display_message("DEBUG: handle_win: Player hand size BEFORE adding to discard: " + str(player_hand.size()))
+	for card_dict in player_hand:
+		discard_pile.append(card_dict) # Append the DICTIONARY
+	player_hand.clear()
+	temporary_card_effects.clear()
+	#display_message("DEBUG: handle_win: Discard pile size AFTER adding hand: " + str(discard_pile.size()))
+
+	# 2. Add copies of card DICTIONARIES from discard_pile back to deck
+	#display_message("DEBUG: handle_win: Deck size BEFORE adding back: " + str(deck.size()))
+	for card_dict in discard_pile: # Iterate through DICTIONARIES in discard_pile
+		# Add a DEEP COPY of the (potentially modified) dictionary back to the deck
+		deck.append(card_dict.duplicate(true))
+		# NO lookup in GameData needed here, we want the modified copy
+
+	#display_message("DEBUG: handle_win: Deck size AFTER adding back: " + str(deck.size()))
+
+	# 3. Clear the discard pile
+	reset_discard_pile() # discard_pile.clear()
+	#display_message("DEBUG: handle_win: Discard pile size AFTER reset: " + str(discard_pile.size()))
+
+	
+	# CREDITS REWARDED
+	var rewarded_creds = calc_round_reward()
+	credits += rewarded_creds
+	# UI UPDATE
+	creditslabel.clear()
+	creditslabel.add_text(str(credits))
+	
+	CerberusStats.record_win(rewarded_creds)
+	display_message("\n")
+	display_message("TOTAL ROUND SCORE : " + str(score) + "\n")
+	display_message("GOOD JOB " + str(username) + "! \n")
+	display_message("YOU'VE BEEN AWARDED " + str(rewarded_creds) + " CREDITS FOR YOUR WIN. \n")
+	display_message("CREDITS: " + str(credits) + "\n")
+	
+	# MOVE IMMEDIATELY TO NEXT ROUND (TESTING)
+	display_message("... CONNECTING TO NEXT ROUND ... \n")
+	wait.start()
+	await wait.timeout
+	game_state = GlobalEnums.GameState.PLAYING
+	play_round()
+
+# FUNCTION CALLED ON PLAYER LOSS
+# DEFAULT LOSING IN ROUND FUNC *NOT* FOR DUELS
+# I DON'T KNOW THE DIFFERENCE BUT PROBABLY IS ONE
+# EVENTUALLY......
+func handle_lose():
+	CerberusStats.record_loss()
+	display_message("You tried your best, " + str(username) + " but it wasn't enough. \n")
+	display_message("Let's try again, from the top. \n")
+	game_state = GlobalEnums.GameState.START
+	play_round()
+
+# DECK: INITIAL SETUP ONLY AT BEGINNING OF GAME
+func setup_deck():
+	# ONLY AT START OF GAME
+	# CLEAR DECK AND CARDS
+	deck.clear()
+	GameData.cards.clear()
+	# EACH DECK STARTS WITH FOUR EQUAL SUITS
+	var suits = ["odessa", "godrik", "dragons", "baezel"]
+	var ranks = [GlobalEnums.CardRank.TWO, GlobalEnums.CardRank.THREE, GlobalEnums.CardRank.FOUR, GlobalEnums.CardRank.FIVE, GlobalEnums.CardRank.SIX,
+				 GlobalEnums.CardRank.SEVEN, GlobalEnums.CardRank.EIGHT, GlobalEnums.CardRank.NINE, GlobalEnums.CardRank.TEN,
+				 GlobalEnums.CardRank.TEMPLAR, GlobalEnums.CardRank.QUEEN, GlobalEnums.CardRank.KING, GlobalEnums.CardRank.PALADIN]
+	# FOR HAND ANALYSIS:
+	#var rank_values = { "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "Templar": 11, "Queen":12, "King":13, "Paladin":14 }
+	# BASE CHIPS ADDED TO HAND-TYPE SCORE ON PLAY
+	#var chip_values = { "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10, "Templar": 11, "Queen":12, "King":13, "Paladin":14 }
+	# BASE MULT USED IN HAND CALCULATION
+	# SET TO 1 FOR STANDARD STARTING DECK
+	#var mult_values = { "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1, "9": 1, "10": 1, "Templar": 1, "Queen":1, "King":1, "Paladin":1 }
+	# ACTUALLY MAKING THE DECK; POPULATES THE DECK ARRAY
+	for suit_str in suits:
+		for rank_enum in ranks:
+			var suit_short = "O" # DEFAULT; USED FOR SHORT COMMAND
+			var enum_suit = GlobalEnums.CardSuit.ODESSA # DEFAULT
+			
+			# CONVERT SUIT STRING TO ENUM VALUE
+			if suit_str == "odessa":
+				enum_suit = GlobalEnums.CardSuit.ODESSA
+				suit_short = "O"
+			elif suit_str == "godrik":
+				enum_suit = GlobalEnums.CardSuit.GODRIK
+				suit_short = "G"
+			elif suit_str == "baezel":
+				enum_suit = GlobalEnums.CardSuit.BAEZEL
+				suit_short = "B"
+			elif suit_str == "dragons":
+				enum_suit = GlobalEnums.CardSuit.DRAGONS
+				suit_short = "D"
+			else:
+				push_warning("setup_deck ERROR: SUIT NAME UNKNOWN. \n")
+			
+			var rank_str = ""
+			match rank_enum:
+				GlobalEnums.CardRank.TWO: rank_str = "2"
+				GlobalEnums.CardRank.THREE: rank_str = "3"
+				GlobalEnums.CardRank.FOUR: rank_str = "4"
+				GlobalEnums.CardRank.FIVE: rank_str = "5"
+				GlobalEnums.CardRank.SIX: rank_str = "6"
+				GlobalEnums.CardRank.SEVEN: rank_str = "7"
+				GlobalEnums.CardRank.EIGHT: rank_str = "8"
+				GlobalEnums.CardRank.NINE: rank_str = "9"
+				GlobalEnums.CardRank.TEN: rank_str = "10"
+				GlobalEnums.CardRank.TEMPLAR: rank_str = "templar"
+				GlobalEnums.CardRank.QUEEN: rank_str = "queen"
+				GlobalEnums.CardRank.KING: rank_str = "king"
+				GlobalEnums.CardRank.PALADIN: rank_str = "paladin"
+
+			var card_name = rank_str + "_of_" + suit_str
+			
+			var card = {
+				"name": card_name,
+				"suit": enum_suit,
+				"rank": rank_enum,  # Store the *enum* value
+				"value": rank_enum,   # Use the enum value directly!
+				"chip_value": rank_enum,
+				"mult_value": 1, #base is one
+				"short_rank": GameData.get_short_rank(rank_enum)
+				}
+			deck.append(card)
+			GameData.cards[card_name] = card
+
+#########################
+# DECK HELPER FUNCTIONS #
+#########################
+
+# SHUFFLE DECK
+func shuffle_deck():
+	deck.shuffle()
+
+# A HARD RESET OF DISCARD PILE; ONLY USE AFTER APPENDING CARDS BACK TO DECK
+func reset_discard_pile():
+	discard_pile.clear()
+
+
+##################
+# HAND FUNCTIONS #
+##################
+
+# DEAL PLAYER HAND, AT START OR AFTER DISCARD/PLAY
+func deal_hand(hand_size : int):
+	player_hand.clear()
+	for _i in range(hand_size):
+		if deck.size() > 0:
+			var card_dict_copy = deck.pop_back() # Get the dictionary copy
+			#display_message("DEBUG: deal_hand: Appending type " + str(typeof(card_dict_copy)) + ", Value: " + str(card_dict_copy) + "\n")
+			player_hand.append(card_dict_copy) # Append the DICTIONARY
+		else:
+			display_message("Deck is empty!\n")
+			break # EXIT IF DECK IS EMPTY
+
+# GENERATE WHAT'S DISPLAYED TO USER
+func generate_displayed_hand():
+	displayed_hand.clear()
+
+	var sorted_card_names = [] # Initialize empty array for card names
+
+	# --- Choose the sorting function based on the mode ---
+	if sort_rank == true:
+		sorted_card_names = sort_hand_by_rank(player_hand)
+	elif sort_rank == false:
+		sorted_card_names = sort_hand_by_suit(player_hand)
+	else:
+		# Default to rank sort if mode is invalid (safety check)
+		push_warning("Invalid hand_sort_mode:")
+		sorted_card_names = sort_hand_by_rank(player_hand)
+
+	# --- Create the displayed hand array ---
+	for card_name in sorted_card_names:
+		 # Use GameData func to format
+		var formatted_string = GameData.format_card_name(card_name, use_short_suits)
+		displayed_hand.append([card_name, formatted_string])
+
+# DRAW CARDS FROM DECK TO HAND
+func draw_cards(num_cards):
+	#print("DRAW CARDS RUNNING")
+	for _i in range(num_cards):
+		if deck.size() > 0:
+			var card_dict_copy = deck.pop_back()
+			#print("DEBUG: draw_cards: Appending type " + str(typeof(card_dict_copy)) + ", Value: " + str(card_dict_copy) + "\n")
+			player_hand.append(card_dict_copy) # Append the DICTIONARY
+			#print("DEBUG draw_cards: Appended type ", typeof(card_dict_copy))
+		else:
+			display_message("Deck is empty! \n")
+			break  # Exit if the deck is empty
+	generate_displayed_hand()
+	display_hand()
+
+# SORT HAND BY RANK
+func sort_hand_by_rank(hand: Array) -> Array:
+		# --- ADD THIS DEBUG ---
+	#print("DEBUG: sort_hand_by_rank: Received hand[0] type=", typeof(hand[0]) if not hand.is_empty() else "EMPTY")
+	#if not hand.is_empty() and typeof(hand[0]) != TYPE_DICTIONARY:
+		#print("CRITICAL: sort_hand_by_rank received non-Dictionary!")
+		#print("Received hand content: " + str(hand))
+		#return []
+		 # You might want to 'return []' here to prevent the crash during debugging
+		 # return []
+	# --- END DEBUG ---
+	var sortable_hand = []
+	# Iterate through the card DICTIONARIES in the input 'hand'
+	#print("sort hand by rank running")
+	for card_dict in hand:
+		# Append the card NAME and card VALUE (for sorting)
+		sortable_hand.append([card_dict.name, card_dict.value])
+
+	# Sort based on the value (the second element, index 1)
+	sortable_hand.sort_custom(func(a, b): return a[1] < b[1])
+
+	# Extract only the sorted card NAMES for the return value
+	var sorted_names = []
+	for item in sortable_hand:
+		sorted_names.append(item[0])
+
+	return sorted_names
+
+# SORT HAND BY SUIT
+func sort_hand_by_suit(hand: Array) -> Array:
+	#display_message("DEBUG: sort_hand_by_suit received hand[0]: " + str(hand[0])) 
+	var sortable_hand = []
+	# Iterate through the card DICTIONARIES in the input 'hand'
+	for card_dict in hand:
+		# Append card NAME, SUIT enum, and rank VALUE
+		sortable_hand.append([card_dict.name, card_dict.suit, card_dict.value])
+	#display_message("DEBUG: sortable_hand BEFORE sort: " + str(sortable_hand)) # Check content
+	# Sort by suit (index 1) first, then by rank/value (index 2)
+	sortable_hand.sort_custom(func(a, b):
+		if a[1] == b[1]:  # Same suit: compare ranks (value)
+			return a[2] < b[2]
+		else:  # Different suits: compare suit enum values
+			return a[1] < b[1]
+	)
+	#display_message("DEBUG: sortable_hand AFTER sort: " + str(sortable_hand)) # Check sorted order
+	# Extract only the sorted card NAMES for the return value
+	var sorted_names = []
+	for item in sortable_hand:
+		sorted_names.append(item[0])
+
+	return sorted_names
+	
+# PLAY AND DISCARD FUNCTIONS (IN ROUND)
+func play_cards(card_numbers: Array):
+	var cards_to_play = []
+
+	for num_str in card_numbers:
+		var card_number = int(num_str) - 1
+		if card_number >= 0 and card_number < displayed_hand.size():
+			cards_to_play.append(displayed_hand[card_number][0])
+		else:
+			display_message("ERROR: INVALID CARD NUMBER " + num_str + "\n")
+	
+	# FIVE CARD PLAY LIMIT RULE
+	if cards_to_play.size() > 5:
+		display_message("INVALID COMMAND: YOU CAN ONLY PLAY UP TO 5 CARDS. \n")
+		return
+		
+	# IN CASE THEY FORGOT TO PICK A CARD
+	if cards_to_play.is_empty():
+		display_message("INVALID COMMAND: SELECT CARDS TO PLAY. \n")
+		return
+	
+	# ACTUALLY PLAYING THE HAND
+	if cards_to_play.size() > 0:
+		if hands > 0:
+			var score_this_hand = calculate_score(cards_to_play)
+			score += score_this_hand
+			
+			var new_hand = [] # This will hold the DICTIONARIES we keep
+		   # --- Remove played cards from hand ---
+	
+			for card_dict in player_hand: # Iterate player_hand dictionaries
+				if card_dict.name not in cards_to_play:
+					new_hand.append(card_dict) # Keep the dictionary
+				else:
+			# ADD THE DICTIONARY to discard_pile
+					discard_pile.append(card_dict)
+			player_hand = new_hand
+			hands -= 1
+			var num_to_draw = cards_to_play.size()
+			#print("DEBUG: About to call draw_cards(" + str(num_to_draw) + ")") # DEBUG
+			draw_cards(cards_to_play.size())
+			on_hand_played() # REMEMBER TO CALL THE DAMN FUNCTION
+			return
+			
+		else:
+			display_message("NO HANDS REMAINING. \n")
+			game_state = GlobalEnums.GameState.LOSE
+			play_round()
+			return
+
+# MAIN FUNC FOR DISCARDS
+func discard_cards(card_numbers: Array):
+	var cards_to_discard = []
+
+	for num_str in card_numbers:
+		var card_number = int(num_str) - 1  # Adjust for 0-indexing
+		if card_number >= 0 and card_number < player_hand.size():
+			var name_to_discard = displayed_hand[card_number][0]
+			cards_to_discard.append(name_to_discard)
+		else:
+			display_message("ERROR: INVALID CARD NUMBER " + num_str + "\n")
+	
+	# IN CASE THEY TRY TO DISCARD MORE THAN 5 CARDS
+	if cards_to_discard.size() >= 6:
+		display_message("You can only select up to five cards to discard. \n")
+		return
+		
+	if cards_to_discard.size() > 0:
+		var new_hand = [] # This will hold the DICTIONARIES we keep
+		for card_dict in player_hand: # Iterate player_hand dictionaries
+			if card_dict.name not in cards_to_discard:
+				new_hand.append(card_dict) # Keep the dictionary
+			else:
+			# ADD THE DICTIONARY to discard_pile
+				discard_pile.append(card_dict)
+
+		player_hand = new_hand # player_hand now contains only the kept DICTIONARIES
+
+		discards -= 1
+		# UI UPDATE
+		discardslabel.clear()
+		discardslabel.add_text(str(discards))
+		display_message("\n")
+		display_message("DISCARDS: " + str(discards) + "\n")
+		draw_cards(cards_to_discard.size())
+	else:
+		display_message("NO DISCARDS REMAINING. \n")
+
+####################
+# USER INPUT FUNCS #
+####################
+
+func _on_submit_pressed() -> void:
+		# KEEPING PROMPT IN FOR NOW BUT NEED TO CHANGE THIS?
+		# PROCESS COMMAND IS MUCH MORE MATURE NOW
+		prompt = user_input.text
+		
+		display_message("\n")
+		display_message(">> " + user_input.text + "\n")
+		display_message("\n")
+		process_command(user_input.text)
+		
+		user_input.clear() #clear the input
+
+# WHEN ENTER IS PRESSED ON THE COMMANDLINE
+func _on_commandline_text_submitted(new_text: String) -> void:
+		prompt = user_input.text
+		display_message(">> " + new_text + "\n")
+		display_message("\n")
+		process_command(new_text)
+		user_input.clear()
+
+# SPECIFIC COMMAND PROCESSING
+func process_command(command: String):
+	var parts = command.split(" ", true, 1) # LIMITS TO TWO PARTS
+	
+	if parts.size() > 0: 
+		var command_word = parts[0].to_lower() # LOWERCASE
+		var args_str = ""
+		if parts.size() > 1:
+			args_str = parts[1].strip_edges() # The rest of the command string
+		
+# USERNAME AND LOGIN
+		if game_state == GlobalEnums.GameState.GETUSERNAME: #username input
+			if command.length() < 20: #check length
+				username = command
+				display_message("... CONNECTING... \n")
+				display_message("... SIGNING YOU IN... \n")
+				wait.start()
+				await wait.timeout
+				display_message("\n")
+				display_message("WELCOME " + username + ". YOU HAVE SUCCESSFULLY LOGGED IN. \n")
+				display_message("\n")
+				display_message("FOR COMMANDS, TYPE 'HELP' \n")
+				game_state = GlobalEnums.GameState.PLAYING
+				play_round()
+
+# SHORT OR LONG SUIT & RANK NAMES
+		if command_word == "set" and parts.size() == 2:
+			if parts[1] == "short":
+				use_short_suits = true
+				display_message("COMMAND CONFIRMED: SUIT SHORT\n")
+				generate_displayed_hand()
+				display_hand()
+			elif parts[1] == "long":
+				use_short_suits = false
+				display_message("COMMAND CONFIRMED: SUIT LONG \n")
+				generate_displayed_hand()
+				display_hand()
+			else:
+				display_message("INVALID COMMAND: USE 'SET SHORT' OR 'SET LONG' \n")
+		
+# HORIZONTAL OR VERTICAL LAYOUT
+		elif command_word == "horizon":
+			horizontal = true
+			display_hand()
+		elif command_word == "vertical":
+			horizontal = false
+			display_hand()
+		
+# PLAY CARD COMMAND
+		elif command_word == "play" or command_word == "p" and parts.size() > 1:
+			var card_numbers = parts[1].split(" ", false)
+			play_cards(card_numbers)
+			
+# DISCARD CARD COMMAND
+		elif command_word == "discard" or command_word == "d" and parts.size() > 1:
+			var card_numbers = parts[1].split(" ", false)
+			discard_cards(card_numbers)
+			
+# DISPLAY HAND
+		elif command_word == "hand" or command_word == "h":
+			display_hand()
+			
+# SORT HAND BY SUIT OR SUIT
+		elif command_word == "sort" and parts.size() > 1:
+			if parts[1] == "rank":
+				sort_rank = true
+				sort_hand_by_rank(player_hand)
+				display_message("HAND SORTED BY RANK. \n")
+				generate_displayed_hand()
+				display_hand()
+				
+			elif parts[1] == "suit":
+				sort_rank = false
+				sort_hand_by_suit(player_hand)
+				display_message("HAND SORTED BY SUIT. \n")
+				generate_displayed_hand()
+				display_hand()
+		
+		# COLOURS
+		elif command_word == "colors":
+			if parts[1] == "on":
+				CerberusStats.use_suit_colors = true
+				display_message("SUIT COLORS ON \n")
+				generate_displayed_hand()
+				display_hand()
+			elif parts[1] == "off":
+				CerberusStats.use_suit_colors = false
+				display_message("SUIT COLORS OFF \n")
+				generate_displayed_hand()
+				display_hand()
+			else:
+				display_message("CHOOSE ON OR OFF AFTER COMMAND COLORS \n")
+				
+#DISPLAY DECK
+		elif command_word == "deck":
+			display_deck()
+			
+# DISPLAY DISCARD PILE
+		elif command_word == "discard" and parts[1] == "pile":
+			display_discard_pile()
+			
+# DISPLAY HELP
+		elif command_word == "help":
+			display_help()
+			
+# DISPLAY INFO
+		elif command_word == "info":
+			process_info_command(args_str)
+			
+# DISPLAY CREDITS
+		elif command_word == "credits":
+			display_message("\n")
+			display_message("CREDITS: " + str(credits) + "\n")
+			display_message("\n")
+			
+# YES AND NO
+# NEED TO CHANGE THIS TO NOT USE "PROMPT"
+		elif command_word == "yes":
+			prompt = "yes"
+			
+		elif command_word == "no":
+			prompt = "no"
+			
+# DAEMONS
+		elif command_word.begins_with("/"):
+			var daemon_to_execute = parts[0].to_lower()
+			
+			if parts.size() > 1:
+				var daemon_args = parts[1].strip_edges()
+				execute_daemon(daemon_to_execute, daemon_args)
+				
+			else:
+				execute_daemon(daemon_to_execute)
+
+# SPIDER FUNCTION: CALL WITH THE ENUM AT KEY POINTS IN GAME LOOP
+func apply_spider_effects(trigger: GlobalEnums.TriggerPhase, context_data: Dictionary = {}):
+	# display_message("DEBUG: Applying Spiders for Phase: " + str(trigger)) # Optional Debug
+
+	for spider_key in player_spiders:
+		if GameData.spiders.has(spider_key):
+			var spider_data = GameData.spiders[spider_key]
+			var trigger_list = spider_data.get("trigger", []) # Get the list of triggers
+
+			if trigger in trigger_list: # Check if this spider triggers on this phase
+				if spider_data.has("effect") and spider_data.effect is Callable:
+					var effect_func = spider_data.effect
+					display_message("DEBUG: Triggering Spider: " + spider_key + "\n") # Debug
+					 # Call the effect, passing self and context
+					 # The effect function might modify game state directly (e.g., player_hand)
+					 # or modify calculation variables (e.g., spider_chip_bonus)
+					effect_func.call(self, context_data)
+				else:
+					push_warning("Spider " + spider_key + " has trigger but no valid effect.")
+		else:
+			push_warning("Player has unknown spider key: " + spider_key)
+
+# EXECUTE DAEMON: TAKES THE COMMAND FROM PROCESS COMMAND
+# AND THE ARGUMENTS LIKE THE CARD NUMBER TO UPGRADE AS A STRING
+func execute_daemon(command: String, daemon_args: String = ""):
+	if not GameData.daemons.has(command):
+		display_message("DAEMON NOT FOUND. \n")
+		return
+		
+	if not player_daemons.has(command):
+		display_message("DAEMON NOT IN DATABASE. \n")
+		return
+		
+	var daemon_data = GameData.daemons[command]
+	var effect_func = daemon_data["effect"]
+	
+	if daemon_args == "":
+		if daemon_data.has("effect") and daemon_data["effect"] is Callable:
+			effect_func.call(self)
+			
+			if daemon_data.get("delete_after_use", true):
+				player_daemons.erase(command)
+				display_message(command + " CONSUMED. \n")
+				update_database_panel()
+				return
+				
+	elif daemon_args != "":
+		var card_num_input = int(daemon_args.strip_edges()) # Convert arg string
+		var card_index_to_bless = card_num_input - 1 # Convert to 0-based index
+
+		# Validate index against *displayed* hand first (what player sees)
+		if card_num_input > 0 and card_num_input <= displayed_hand.size():
+			# Find the actual card dictionary index in player_hand
+			var target_card_name = displayed_hand[card_index_to_bless][0]
+			var actual_card_index = -1
+			for i in range(player_hand.size()):
+				if player_hand[i].name == target_card_name:
+					actual_card_index = i
+					break
+
+			if actual_card_index != -1:
+				# Call effect with self and the actual index in player_hand
+				effect_func.call(self, actual_card_index)
+				if daemon_data.get("delete_after_use", true):
+					player_daemons.erase(command)
+					display_message(command + " CONSUMED. \n")
+					update_database_panel()
+					return
+			else:
+			# This should technically not happen if displayed_hand is correct
+				display_message("Error finding card in hand.\n")
+				return
+			
+	else:
+		display_message("NO EFFECT FOUND FOR DAEMON. \n")
+
+# PROCESSES THE [INFO [X] [X]] COMMAND FROM PROCESS COMMAND
+func process_info_command(args_str: String):
+	var info_parts = args_str.split(" ", false, 1)
+	if info_parts.is_empty() or info_parts[0] == "":
+		display_message("Info requires a type (card, daemon, spider, vendor, handtype) and optionally a name/number.\n")
+		display_message("Example: info card 1\n")
+		display_message("Example: info daemon vashiiq \n")
+		display_message("Example: info handtype pair \n")
+		return
+
+	var info_type = info_parts[0].to_lower()
+	var name_or_num_str = ""
+	if info_parts.size() > 1:
+		name_or_num_str = info_parts[1].strip_edges()
+
+	match info_type:
+		"card":
+			display_card_info(name_or_num_str)
+		"daemon":
+			display_daemon_info(name_or_num_str)
+		"spider":
+			display_spider_info(name_or_num_str)
+		"vendor":
+			display_vendor_info(name_or_num_str)
+		"handtype":
+			display_handtype_info(name_or_num_str)
+		"help", "commands":
+			display_message("Usage: info [type] [name/number]\nTypes: card, daemon, spider, vendor, handtype\n")
+		_:
+			display_message("Unknown info type: '" + info_type + "'. Use card, daemon, spider, vendor, or handtype.\n")
+
+# DISPLAYS CARD INFO ON PROCESS COMMAND [INFO CARD [NUMBER FROM HAND]]
+func display_card_info(name_or_num_str: String):
+	if name_or_num_str == "":
+		display_message("Please specify a card number from your hand or a card name.\n")
+		return
+
+	var card_data_to_display = null
+	var source_info = "(Base Stats from GameData)" # Default source info
+	var card_name = ""
+
+	# Try interpreting as a number from hand FIRST
+	var card_num = int(name_or_num_str) # Will be 0 if not valid int
+	if card_num > 0 and card_num <= player_hand.size():
+	# --- START OF CHANGED/ADDED LOGIC ---
+	# 1. Get NAME using displayed_hand index
+		var target_card_name = displayed_hand[card_num - 1][0]
+		card_name = target_card_name # Store the correct name
+
+	# 2. Find the corresponding DICTIONARY in player_hand
+		for card_dict in player_hand:
+			if card_dict.name == target_card_name:
+				card_data_to_display = card_dict # Found the specific dictionary copy
+				source_info = "(Current Stats from Hand)"
+				break # Stop searching
+	# --- END OF CHANGED/ADDED LOGIC ---
+	else:
+		# Assume it's a card name - show BASE stats from GameData
+		card_name = name_or_num_str.to_lower()
+		if GameData.cards.has(card_name):
+			card_data_to_display = GameData.cards[card_name]
+		# Note: We could also search player_hand by name here if needed
+
+	# --- Display the data ---
+	if card_data_to_display:
+		card_name = card_data_to_display.name # Get name for formatting
+		var long_name = GameData.format_card_name(card_name, false)
+		var short_name = GameData.format_card_name(card_name, true)
+
+		display_message("--- Card Info: " + long_name + " (" + short_name + ") " + source_info + " ---\n")
+		display_message("  Rank: " + str(card_data_to_display.rank) + " (Value: " + str(card_data_to_display.value) + ")\n")
+		display_message("  Suit: " + GameData.get_suit_name(card_data_to_display.suit, false) + "\n")
+		# Display CURRENT stats from the dictionary copy
+		display_message("  Current Chips: " + str(card_data_to_display.chip_value) + "\n")
+		display_message("  Current Multiplier: " + str(card_data_to_display.mult_value) + "\n")
+		# TEMPORARY EFFECTS
+				# --- NEW: Check for Temporary Effects ---
+		if temporary_card_effects.has(card_name):
+			var effect_data = temporary_card_effects[card_name]
+			var effect_desc = "Unknown Temporary Effect"
+			# Add more specific descriptions based on effect_data.type
+			if effect_data.type == "temp_chip_bonus":
+				effect_desc = "Overclocked: +" + str(effect_data.amount) + " Chips on next play"
+			elif effect_data.type == "temp_mult_bonus":
+				effect_desc = "Synergized: +" + str(effect_data.amount) + " Mult on next play"
+			# Add other temp effect types here...
+
+			display_message("  TEMPORARY EFFECT: " + effect_desc + "\n")
+		# --- END NEW ---
+
+		# Display persistent flags (like blessed, if you still use them)
+		if card_data_to_display.get("chip_boosted", false):
+			display_message("  Status: Permanently Blessed (Chips)\n")
+		if card_data_to_display.get("mult_boosted", false):
+			display_message("  Status: Permanently Synergized (Mult)\n")
+		# Add debuff status etc.
+		
+		
+	else:
+		display_message("Card '" + name_or_num_str + "' not found.\n")
+
+# DISPLAYS DAEMON INFO ON PROCESS COMMAND [INFO DAEMON [NAME]]
+func display_daemon_info(daemon_name: String):
+	if daemon_name == "":
+		display_message("Please specify a daemon name (e.g., /vashiiq.dae).\n")
+		return
+	# Maybe allow lookup without full path?
+	var lookup_name = daemon_name.to_lower()
+	if GameData.daemons.has(lookup_name):
+		var data = GameData.daemons[lookup_name]
+		display_message("--- Daemon Info: " + data.get("description", lookup_name) + " ---\n")
+		display_message("  " + data.get("extended description", "No further details.") + "\n")
+		display_message("  Rarity: " + str(data.get("rarity", "N/A")) + "\n") # Display rarity number
+		display_message("  Value: " + str(data.get("credit value", "N/A")) + " credits\n")
+		# Add other relevant details: stackable, reusable, target etc.
+	else:
+		display_message("Daemon '" + daemon_name + "' not found.\n")
+
+# DISPLAYS SPIDER INFO ON PROCESS COMMAND [INFO SPIDER [NAME]]
+func display_spider_info(spider_name: String):
+	if spider_name == "":
+		display_message("Please specify a spider name.\n")
+		return
+	var lookup_name = spider_name.to_lower() # Allow case-insensitivity?
+	if GameData.spiders.has(lookup_name):
+		var data = GameData.spiders[lookup_name]
+		display_message("--- Spider Info: " + data.get("description", lookup_name) + " ---\n")
+		display_message("  " + data.get("extended description", "No further details.") + "\n")
+		display_message("  Rarity: " + str(data.get("rarity", "N/A")) + "\n")
+		display_message("  Value: " + str(data.get("credit value", "N/A")) + " credits\n")
+		display_message("  Trigger Phase(s): " + str(data.get("trigger", [])) + "\n") # Show trigger phases
+		display_message("  Max Quantity: " + str(data.get("max_quantity", 1)) + "\n")
+		display_message("  Persistent: " + str(data.get("perm", true)) + "\n")
+	else:
+		display_message("Spider '" + spider_name + "' not found.\n")
+
+# DISPLAYS VENDOR INFO ON PROCESS COMMAND [INFO VENDOR [NAME]]
+func display_vendor_info(vendor_name: String):
+	if vendor_name == "":
+		display_message("Please specify a vendor name.\n")
+		return
+	 # Check combined vendor dictionary if you made one, or check individual dicts
+	var vendor_data = null
+	var lookup_name = vendor_name.capitalize() # Match case as defined in dicts?
+	if GameData.fixed_vendor.has(lookup_name):
+		vendor_data = GameData.fixed_vendor[lookup_name]
+	if GameData.cipher_vendor.has(lookup_name):
+		vendor_data = GameData.cipher_vendor[lookup_name]
+	if GameData.sometimes_vendor.has(lookup_name):
+		vendor_data = GameData.sometimes_vendor[lookup_name]
+	if GameData.elite_traders.has(lookup_name):
+		vendor_data = GameData.vendors[lookup_name]
+	 # Add checks for other vendor dicts (cipher_vendor, sometimes_vendor) if separate
+
+	if vendor_data:
+		display_message("--- Vendor Info: " + vendor_data.get("name", lookup_name) + " (@" + vendor_data.get("username", "???") + ") ---\n")
+		display_message("  " + vendor_data.get("info", "No public profile info.") + "\n")
+		display_message("  Sells/Trades: " + str(vendor_data.get("type", "Unknown")) + "\n") # Display enum value or map to string
+	else:
+		display_message("Vendor '" + vendor_name + "' not found or not currently available.\n")
+
+# DISPLAYS HANDTYPE INFO ON PROCESS COMMAND [ INFO HANDTYPE ]
+func display_handtype_info(handtype_name: String):
+	if handtype_name == "":
+		display_message("Please specify a hand type name (e.g., pair, flush, royal_flush).\n")
+		return
+
+	var found = false
+	for ht_enum in GlobalEnums.HandType.values():
+		 # Compare lowercase input to lowercase enum name string
+		if handtype_name.to_lower() == GlobalEnums.HandType.keys()[ht_enum].to_lower():
+			var data = GameData.hand_data[ht_enum]
+			display_message("--- Hand Type Info: " + data.get("name", "Unknown") + " ---\n")
+			display_message("  " + data.get("description", "No description.") + "\n")
+			display_message("  Base Score: " + str(data.get("base score", 0)) + "\n")
+			display_message("  Current Level: " + str(data.get("level", 1)) + "\n")
+			found = true
+			break # Stop after finding match
+
+	if not found:
+		display_message("Hand type '" + handtype_name + "' not found.\n")
+
+####################
+# DISPLAY FUNCTIONS#
+####################
+
+# DECK: LISTS OUT EVERYTHING CURRENTLY IN PLAYER'S DECK
+# MAYBE ADD A SORTING COMMAND LATER FOR SUITS
+func display_deck():
+	if deck.size() > 0:
+		display_message("YOUR CURRENT DECK: \n")
+		for card_dict in deck: 
+			display_message(GameData.format_card_name(card_dict.name, use_short_suits) + "\n")
+	else:
+		display_message("DECK IS EMPTY! \n")
+
+# DISPLAYS CURRENTLY DRAWN HAND
+# MOSTLY INCLUDED IN CASE THE PLAYER PUSHES IT OFF SCREEN WITH HELP OR SOMETHING
+func display_hand():
+	display_message("\n")
+	var number = 1
+	for card_data in displayed_hand:
+		if horizontal == true:
+			display_message(str(number) + ": " + card_data[1] + " | ")
+			number += 1
+		else:
+			display_message(str(number) + ": " + card_data[1] + "\n")
+			number += 1
+	display_message("\n")
+
+# DATABASE: LIST IN TERMINAL OUTPUT
+func display_database():
+	var database = player_daemons + player_spiders
+	var number = 1
+	if player_daemons.size() == 0 and player_spiders.size() == 0:
+		display_message("DATABASE EMPTY. \n")
+		return
+	else:
+		for item in database:
+			display_message(str(number)+ ": " + item + "\n")
+			number += 1
+
+# UPDATES THE SIDE PANEL IN UI FOR A LIST:
+# SHOWS PLAYER_DAEMONS AND PLAYER_SPIDERS
+# SHOWS COMMANDS FOR PLAYER TO TYPE FOR DAEMONS
+# SPIDER LIST IS JUST FOR REFERENCE
+func update_database_panel(): # uidatabase
+	uidatabase.clear()
+	var number = 1
+	var has_items = false
+	
+	# DAEMONS:
+	if player_daemons.size() > 0:
+		has_items = true
+		uidatabase.append_text("---DAEMONS--- \n")
+		for daemon in player_daemons:
+			uidatabase.append_text("-" + str(number) + ":" + daemon + "\n")
+			number += 1
+		uidatabase.append_text("\n")
+		
+	if player_spiders.size() > 0:
+		has_items = true
+		uidatabase.append_text("---SPIDERS--- \n")
+		for spider in player_spiders:
+			var spider_name = GameData.spiders.get(spider, {}).get("name", spider)
+			uidatabase.append_text("-" + str(number) + ":" + spider_name + "\n")
+			number += 1
+		uidatabase.append_text("\n")
+		
+	if not has_items:
+		uidatabase.append_text("DATABASE EMPTY. \n")
+		
+	uidatabase.scroll_to_line(0)
+
+# HELP: DISPLAYS HELP MENU FOR COMMANDS, FORMATTED
+# THIS WAS A RIGHT BITCH TO DO AND I DON'T EVEN NOW FULLY UNDERSTAND IT
+# PROBABLY CHANGE BEFORE RELEASE BUT GOOD ENOUGH FOR NOW
+func display_help():
+	var width = 68  # Still useful for top/bottom border and wrap calculation
+	var border_char = "="
+	var side_char = "|" # Only used for the LEFT side now
+	var line_char = "+"
+	var padding = 2 # Spaces AFTER the left border
+
+	var help_text = "\n"
+
+	# --- Top Border ---
+	help_text += border_char.repeat(width) + "\n"
+
+	# --- Header ---
+	var title = " ---COMMAND HELP--- "
+	# Simple left padding for the header
+	help_text += side_char + " ".repeat(width / 3) + title + "\n" # No right border/padding
+
+	# --- Separator Line ---
+	# Make separator slightly shorter than top/bottom? Optional.
+	var separator_length = width - padding - 1 # Length from padding to edge
+	help_text += side_char + " ".repeat(padding) + line_char.repeat(max(0, separator_length - padding)) + "\n" # Start separator after padding
+
+	# --- Commands ---
+	var command_col_width = 20 # Width for command name part
+	# Calculate max width for description based on total width minus left stuff
+	var description_max_width = width - command_col_width - padding - 4 # Rough estimate (-4 for "| ", ": ")
+
+	var command_keys = commands.keys()
+	# command_keys.sort() # Optional
+	
+	var first_command = true
+	for command_name in command_keys:
+				# --- ADD SEPARATOR LINE (Before all entries *except* the first) ---
+		if not first_command:
+			help_text += side_char + " ".repeat(padding) + "-".repeat(max(0, separator_length - padding)) + "\n"
+		
+		first_command = false # Clear the flag after the first iteration
+		# --- END SEPARATOR ---
+		var description = commands[command_name].strip_edges()
+
+		# --- Manual Right Padding for Command (to align colons) ---
+		var spaces_needed_cmd = max(0, command_col_width - command_name.length())
+		var command_display = command_name + " ".repeat(spaces_needed_cmd)
+		var full_prefix = command_display + ": "
+
+		# --- Handle Description Wrapping (Simpler) ---
+		var remaining_line_width = width - full_prefix.length() - padding - 1 # Max width for first line desc
+		if description.length() <= remaining_line_width:
+			# Fits on one line
+			var line = full_prefix + description
+			help_text += side_char + " ".repeat(padding) + line + "\n" # Add left border/padding only
+		else:
+			# Needs wrapping
+			# First line
+			var first_desc_chunk = description.left(remaining_line_width)
+			var line1 = full_prefix + first_desc_chunk
+			help_text += side_char + " ".repeat(padding) + line1 + "\n" # Add left border/padding only
+
+			# Subsequent lines
+			var current_desc_pos = remaining_line_width
+			var indent = " ".repeat(command_col_width + 2) # Indentation for wrapped lines
+			var wrap_width = width - indent.length() - padding - 1 # Width for wrapped desc
+
+			while current_desc_pos < description.length():
+				var desc_chunk = description.substr(current_desc_pos, wrap_width)
+				var wrapped_line = indent + desc_chunk
+				help_text += side_char + " ".repeat(padding) + wrapped_line + "\n" # Add left border/padding only
+				current_desc_pos += wrap_width
+
+	# --- Bottom Border ---
+	help_text += border_char.repeat(width) + "\n"
+	display_message(help_text)
+	
+# DISCARD PILE
+func display_discard_pile():
+	if discard_pile.size() > 0:
+		display_message("Cards in discard pile: \n")
+		for card_dict in discard_pile: # Iterate DICTIONARIES
+			# Get name and format it using GameData function
+			display_message(GameData.format_card_name(card_dict.name, use_short_suits) + "\n")
+	else:
+		display_message("No cards in discard pile yet. \n")
+
+# DEFAULT MESSAGE IN TERMINAL
+func display_message(message):
+	displayed_message.append_text(str(message))
+	
+# SCALING FUNCTIONS
+
+func calc_round_reward() -> int:
+	var reward = round_rewards.get([boss_number, round_number], 0) #get the round or return 0
+	reward += (hands * 5)
+	reward += (discards * 2)
+	return reward
+	
+func calculate_level_multiplier(hand_type: GlobalEnums.HandType) -> float:
+	if GameData.hand_data.has(hand_type):
+		var level = GameData.hand_data[hand_type]["level"]
+		var multiplier = 1.0 + (level - 1) * 0.2  # 20% linear increase
+		return multiplier
+	else:
+		push_error("ERROR: HAND TYPE NOT FOUND IN HAND_DATA.")
+		return 1.0
+		
+func calculate_score_scaling() -> int:
+	var base_score = 100
+	var scaling_factor = 50
+	var score_to_beat = base_score + (round_number - 1) * scaling_factor
+
+	if round_number % 4 == 0:
+		# Get the multiplier for the current boss
+		var multiplier = boss_data.get(boss_number, {"multiplier": 1.5})["multiplier"]  # Default to 1.5 if not found
+		score_to_beat *= multiplier
+
+	return int(score_to_beat)
+	
+# LEVELLING UP FUNCTIONS - CALL IN CALC_SCORE
+# HANDTYPE LEVELS UP EVERY 5TH TIME IT IS PLAYED AND SCORED
+# DOES NOT LEVEL UP IF HANDTYPE ALREADY AT THE LEVEL IT WAS GOING TO LEVEL TO
+
+# RESETTING PER RUN
+func reset_hand_levels():
+	for hand_type_enum in GameData.hand_data:
+		if GameData.hand_data[hand_type_enum].has("level"):
+			GameData.hand_data[hand_type_enum]["level"] = 1
+		if GameData.hand_data[hand_type_enum].has("times_played"):
+			GameData.hand_data[hand_type_enum]["times_played"] = 0
+
+func add_hand_played_count(hand_type: GlobalEnums.HandType):
+# EVERY TIME A HAND IS PLAYED, ADDS ONE TO COUNT
+	if GameData.hand_data.has(hand_type):
+		# Ensure the key exists before trying to increment
+		if not GameData.hand_data[hand_type].has("times_played"):
+			GameData.hand_data[hand_type]["times_played"] = 0 # Initialize if missing
+
+		GameData.hand_data[hand_type]["times_played"] += 1
+		# print("DEBUG: Incremented " + hand_data[hand_type]["name"] + " played count to: " + str(hand_data[hand_type]["times_played"]))
+	else:
+		push_error("ERROR: Hand type not found in hand_data: " + str(hand_type) + "\n")
+
+func check_organic_level_up(hand_type: GlobalEnums.HandType):
+	if not GameData.hand_data.has(hand_type):
+		push_error("ERROR: Hand type not found in hand_data: " + str(hand_type))
+		return
+
+	# Ensure keys exist
+	if not GameData.hand_data[hand_type].has("times_played"):
+		GameData.hand_data[hand_type]["times_played"] = 0
+	if not GameData.hand_data[hand_type].has("level"):
+		GameData.hand_data[hand_type]["level"] = 1 # Assume level 1 if missing
+
+	var current_level = GameData.hand_data[hand_type]["level"]
+	var times_played = GameData.hand_data[hand_type]["times_played"]
+
+	# --- Calculate Required Plays for Next Level ---
+	# Your pattern is 5 plays per level (5 for L2, 10 for L3, 15 for L4, etc.)
+	# Required plays for current_level + 1 is simply current_level * 5
+	var required_plays_for_next_level = current_level * 5
+
+	# Define a maximum level if desired
+	var max_level = 10 # Example max level
+
+	# --- Check for Level Up ---
+	if current_level < max_level and times_played >= required_plays_for_next_level:
+		GameData.hand_data[hand_type]["level"] += 1
+		var new_level = GameData.hand_data[hand_type]["level"]
+		display_message("Your played hand, " + GameData.hand_data[hand_type]["name"] + ", levelled up to Level " + str(new_level) + "! \n")
+		# Optionally, reset times_played or adjust based on your rules
+		# e.g., hand_data[hand_type]["times_played"] = 0 # Reset counter for next level
+	
+###########################
+# HAND SCORE AND ANALYSIS #
+###########################
+
+# MAIN ANALYSIS OF HAND
+func analyze_hand(played_cards: Array) -> GlobalEnums.HandType:
+	var hand_cards = []
+	for card_name in played_cards:
+		hand_cards.append(GameData.cards[card_name])
+
+	for num_cards in range(1, hand_cards.size() + 1): 
+		if is_royal_flush(hand_cards):
+			return GlobalEnums.HandType.ROYAL_FLUSH
+		elif is_straight_flush(hand_cards):
+			return GlobalEnums.HandType.STRAIGHT_FLUSH
+		elif is_flush_five(hand_cards):
+			return GlobalEnums.HandType.FLUSH_FIVE
+		elif is_five_of_a_kind(hand_cards):
+			return GlobalEnums.HandType.FIVE_OF_A_KIND
+		elif is_flush_four(hand_cards):
+			return GlobalEnums.HandType.FLUSH_FOUR
+		elif is_four_of_a_kind(hand_cards):
+			return GlobalEnums.HandType.FOUR_OF_A_KIND
+		elif is_odessas_house(hand_cards):
+			return GlobalEnums.HandType.ODESSAS_HOUSE
+		elif is_baezels_house(hand_cards):
+			return GlobalEnums.HandType.BAEZELS_HOUSE
+		elif is_godriks_house(hand_cards):
+			return GlobalEnums.HandType.GODRIKS_HOUSE
+		elif is_full_house(hand_cards):
+			return GlobalEnums.HandType.FULL_HOUSE
+		elif is_flush(hand_cards):
+			return GlobalEnums.HandType.FLUSH
+		elif is_straight(hand_cards):
+			return GlobalEnums.HandType.STRAIGHT
+		elif is_the_three(hand_cards):
+			return GlobalEnums.HandType.THE_THREE
+		elif is_three_of_a_kind(hand_cards):
+			return GlobalEnums.HandType.THREE_OF_A_KIND
+		elif is_two_pair(hand_cards):
+			return GlobalEnums.HandType.TWO_PAIR
+		elif is_pair(hand_cards):
+			return GlobalEnums.HandType.PAIR
+			
+	return GlobalEnums.HandType.HIGH_CARD
+	
+# CALCULATE SCORE: TAKES CARDS AND RUNS THROUGH OTHER FUNCS
+func calculate_score(played_card_names: Array) -> int:
+	# RESET SPIDER-SPECIFIC VAR
+	spider_chip_bonus = 0
+	spider_mult_bonus = 0
+	spider_mult_multiplier = 1.0
+	
+	scored_card_dicts.clear()  # CLEAR SCORED CARDS FROM PREVIOUS
+	# FINDING HAND TYPE + ANALYSE
+	var hand_type = analyze_hand(played_card_names)
+	display_message("HAND TYPE: " + GlobalEnums.HandType.keys()[hand_type] + "\n") 
+	# GETTING BASE HAND TYPE LEVEL AND SCORE
+	var base_chips = 0
+	if GameData.hand_data.has(hand_type):
+		base_chips = GameData.hand_data[hand_type].get("base score", 0)
+	else:
+		push_warning("Hand type not found in hand_data: ", hand_type)
+
+	var hand_level_mult = calculate_level_multiplier(hand_type)
+
+	# CONVERTING INTO DICTIONARIES
+	var hand_cards = []
+	for card_name in played_card_names:
+		if GameData.cards.has(card_name):
+			hand_cards.append(GameData.cards[card_name])
+		else:
+			push_warning("Card name not found in 'cards' dictionary during score calc: " + card_name)
+
+	# PRESCORE SPIDERS
+	apply_spider_effects(GlobalEnums.TriggerPhase.PRE_SCORE, {"hand": hand_cards, "type": hand_type})
+
+
+# HIGHEST CARD COUNT TO LOWEST
+	var card_results = {"chips": 0, "added_mult": 0}
+	match hand_type:
+		GlobalEnums.HandType.ROYAL_FLUSH: card_results = calc_royal_flush(hand_cards)
+		GlobalEnums.HandType.STRAIGHT_FLUSH: card_results = calc_straight_flush(hand_cards)
+		GlobalEnums.HandType.FIVE_OF_A_KIND: card_results = calc_five_of_a_kind(hand_cards)
+		GlobalEnums.HandType.FLUSH_FIVE: card_results = calc_flush_five(hand_cards)
+		GlobalEnums.HandType.FOUR_OF_A_KIND: card_results = calc_four_of_a_kind(hand_cards)
+		GlobalEnums.HandType.FLUSH_FOUR: card_results = calc_flush_four(hand_cards)
+		GlobalEnums.HandType.FULL_HOUSE: card_results = calc_full_house(hand_cards)
+		GlobalEnums.HandType.GODRIKS_HOUSE: card_results = calc_godriks_house(hand_cards)
+		GlobalEnums.HandType.BAEZELS_HOUSE: card_results = calc_baezels_house(hand_cards)
+		GlobalEnums.HandType.ODESSAS_HOUSE: card_results = calc_odessas_house(hand_cards)
+		GlobalEnums.HandType.FLUSH: card_results = calc_flush(hand_cards)
+		GlobalEnums.HandType.STRAIGHT: card_results = calc_straight(hand_cards)
+		GlobalEnums.HandType.THE_THREE: card_results = calc_the_three(hand_cards)
+		GlobalEnums.HandType.THREE_OF_A_KIND: card_results = calc_three_of_a_kind(hand_cards)
+		GlobalEnums.HandType.TWO_PAIR: card_results = calc_two_pair(hand_cards)
+		GlobalEnums.HandType.PAIR: card_results = calc_pair(hand_cards)
+		GlobalEnums.HandType.HIGH_CARD: card_results = calc_high_card(hand_cards)
+		_:
+			push_warning("Unknown hand type in calculate_score match: ", hand_type)
+			card_results = {"chips": 0, "added_mult": 0}
+	
+	var initial_total_chips = base_chips + card_results.get("chips", 0)
+	var initial_total_mult = 1 * card_results.get("added_mult", 1)
+	
+		# --- Apply TEMPORARY Card Effects ---
+	# Iterate through the cards that actually scored THIS hand
+	var temp_chip_bonus_applied = 0
+	# var temp_mult_bonus_applied = 0 # If you add mult effects
+	for card_dict in scored_card_dicts: # Use the list of dicts that scored
+		var card_name = card_dict.name
+		if temporary_card_effects.has(card_name):
+			var effect_data = temporary_card_effects[card_name]
+			if effect_data.type == "temp_chip_bonus":
+				temp_chip_bonus_applied += effect_data.amount
+				display_message("Applied " + effect_data.source + " bonus: +" + str(effect_data.amount) + " Chips for " + card_name + "\n")
+			# elif effect_data.type == "temp_mult_bonus":
+			#     temp_mult_bonus_applied += effect_data.amount
+			# ... other temporary effect types ...
+
+			# IMPORTANT: Remove the temporary effect after applying it
+			temporary_card_effects.erase(card_name)
+
+	# --- DURING_SCORE SPIDERS (Might modify initial_total_chips/mult) ---
+	# This timing might need adjustment based on exact effect (e.g., modify card before calc?)
+	var during_score_context = {"hand": hand_cards, "type": hand_type, "current_chips": initial_total_chips, "current_mult": initial_total_mult}
+	   # --- Apply Spider Effects ---
+	var context = {
+		"hand_played": hand_cards, # Dictionaries of all cards played
+		"type": hand_type,
+		"current_chips": initial_total_chips,
+		"current_mult": initial_total_mult,
+		"scored_cards": scored_card_dicts # Pass the array of SCORING card DICTIONARIES
+	}
+	
+	
+	apply_spider_effects(GlobalEnums.TriggerPhase.DURING_SCORE, context)
+	# Spiders called by apply_spider_effects might modify global spider_chip/mult_bonus vars
+	# OR they might modify the context dictionary if passed by reference (more complex)
+
+	# --- POST_SCORE SPIDERS (After base calc, before level mult?) ---
+	apply_spider_effects(GlobalEnums.TriggerPhase.POST_SCORE, context)
+	# Spiders might modify final_total_chips/mult again here OR modify global score directly
+
+
+	var final_total_chips = initial_total_chips + temp_chip_bonus_applied + spider_chip_bonus
+	var final_total_mult = initial_total_mult + spider_mult_bonus # Additive first
+	final_total_mult *= spider_mult_multiplier # Then multiplicative
+
+	# --- Final Score ---
+	var final_score = final_total_chips * final_total_mult * hand_level_mult
+
+	add_hand_played_count(hand_type)
+	check_organic_level_up(hand_type)
+
+	return int(final_score)
+
+# FLUSH-RELATED FUNCS
+
+func is_flush(fcards: Array) -> bool:
+	if fcards.size() < 5:
+		return false
+	var first_suit = fcards[0].suit
+	for card in fcards:
+		if card.suit != first_suit:
+			return false
+	return true
+
+func calc_flush(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_flush_five(fcards: Array) -> bool:
+	if fcards.size() != 5:  # Must be exactly 5 cards
+		return false
+	if not is_five_of_a_kind(fcards):
+		return false
+	return is_flush(fcards) # It is a five of a kind AND a flush
+
+func calc_flush_five(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_flush_four(fcards):
+	if fcards.size() < 4: #at least four
+		return false
+	if not is_four_of_a_kind(fcards): #check for 4 of a kind
+		return false
+
+	var rank_counts = {}
+	for card in fcards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+
+	var quad_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 4:
+			quad_rank = rank
+			break
+
+	var four_cards= []
+	for card in fcards:
+		if card.rank == quad_rank:
+			four_cards.append(card)
+
+	var first_suit = four_cards[0].suit
+	for card in four_cards:
+		if card.suit != first_suit:
+			return false
+	return true
+
+func calc_flush_four(fcards: Array) -> Dictionary:
+	var rank_counts = {} #count
+	for card in fcards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+
+	var quad_rank = null 
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 4:
+			quad_rank = rank
+			break
+
+	var quad_cards = [] 
+	for card in fcards:
+		if card.rank == quad_rank:
+			quad_cards.append(card)
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in quad_cards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+	
+
+	# STRAIGHT-RELATED FUNCTIONS
+
+func is_straight(fcards: Array) -> bool:
+	if fcards.size() != 5:
+		return false
+		
+	var ranks = []
+	for card in fcards:
+		ranks.append(card.value)  # Use the numerical 'value' for rank
+	ranks.sort()
+	
+	# --- Check 1: Standard Consecutive Straight ---
+	var is_standard_straight = true
+	for i in range(ranks.size() - 1): # Loop 4 times (0 to 3)
+		if ranks[i + 1] != ranks[i] + 1:
+			is_standard_straight = false
+			break # Exit loop early if sequence breaks
+
+	if is_standard_straight:
+		# Covers straights like 5-6-7-8-9 up to 10-T-Q-K-P (10-11-12-13-14)
+		return true
+
+	# --- Check 2: Ace-Low Straight (P-2-3-4-5) ---
+	# Check if the sorted ranks EXACTLY match [2, 3, 4, 5, 14]
+	# Using the enum values directly makes this very clear and robust
+	if ranks == [GlobalEnums.CardRank.TWO, GlobalEnums.CardRank.THREE, GlobalEnums.CardRank.FOUR, GlobalEnums.CardRank.FIVE, GlobalEnums.CardRank.PALADIN]:
+		return true # Found an Ace-low straight
+		
+	return false
+
+func calc_straight(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_straight_flush(fcards: Array) -> bool:
+	return is_straight(fcards) and is_flush(fcards)
+
+func calc_straight_flush(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_royal_flush(fcards: Array) -> bool:
+	if not is_straight_flush(fcards):
+		return false
+	# Check if the highest card is a Paladin (Ace)
+	var ranks = []
+	for card in fcards:
+		ranks.append(card.value)
+	ranks.sort()
+	return ranks[4] == GlobalEnums.CardRank.PALADIN # CHECK TO BE SURE HIGHEST IS PALADIN
+
+func calc_royal_flush(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+	
+	# KIND RELATED HANDS
+		# HELPER FUNCTION
+
+# HELPER FUNCTION: COUNTING RANKS FOR KIND-TYPE FUNCS
+func count_ranks(fcards: Array) -> Dictionary:
+	var rank_counts = {}
+	for card in fcards:
+		if rank_counts.has(card.rank):
+			rank_counts[card.rank] += 1
+		else:
+			rank_counts[card.rank] = 1
+	return rank_counts
+
+func is_pair(fcards: Array) -> bool:
+	if fcards.size() < 2: #at least 2
+		return false
+	var rank_counts = count_ranks(fcards)
+	for count in rank_counts.values():
+		if count == 2:
+			return true
+	return false
+
+func calc_pair(fcards: Array) -> Dictionary:
+	var rank_counts = count_ranks(fcards)
+	var pair_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			pair_rank = rank
+			break
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		if card_dict.rank == pair_rank:
+			scored_card_dicts.append(card_dict)
+			chips_from_cards += card_dict.chip_value
+			added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_two_pair(fcards: Array) -> bool:
+	if fcards.size() < 4: #at least 4
+		return false
+	var rank_counts = count_ranks(fcards)
+	var pair_count = 0
+	for count in rank_counts.values():
+		if count == 2:
+			pair_count += 1
+	return pair_count == 2
+
+func calc_two_pair(fcards: Array) -> Dictionary:
+	var rank_counts = count_ranks(fcards)
+	var pair_ranks = []
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 2:
+			pair_ranks.append(rank)
+
+	if pair_ranks.size() != 2: #make sure
+		return {"chips": 0, "added_mult": 0}
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	
+	for card_dict in fcards:
+		if card_dict.rank == pair_ranks[0] or card_dict.rank == pair_ranks[1]:
+			scored_card_dicts.append(card_dict)
+			chips_from_cards += card_dict.chip_value
+			added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_three_of_a_kind(fcards: Array) -> bool:
+	var rank_counts = count_ranks(fcards)
+	for count in rank_counts.values():
+		if count == 3:
+			return true
+	return false
+
+func calc_three_of_a_kind(fcards: Array) -> Dictionary:
+	var rank_counts = count_ranks(fcards)
+	var trio_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 3:
+			trio_rank = rank
+			break
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	
+	for card_dict in fcards:
+		if card_dict.rank == trio_rank:
+			scored_card_dicts.append(card_dict)
+			chips_from_cards += card_dict.chip_value
+			added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+			
+func is_four_of_a_kind(fcards: Array) -> bool:
+	var rank_counts = count_ranks(fcards)
+	for count in rank_counts.values():
+		if count == 4:
+			return true
+	return false
+
+func is_five_of_a_kind(fcards: Array) -> bool:
+	var rank_counts = count_ranks(fcards)
+	for count in rank_counts.values():
+		if count == 5:
+			return true
+	return false
+
+func calc_the_three(fcards: Array) -> Dictionary:
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+	
+func is_the_three(fcards: Array) -> bool:
+	if fcards.size() < 3:
+		return false
+	if not is_three_of_a_kind(fcards):
+		return false
+
+	var paladin_count = 0
+	var suits = []
+	for card in fcards:
+		if card.rank == GlobalEnums.CardRank.PALADIN:
+			paladin_count += 1
+			suits.append(card.suit)
+	if paladin_count != 3:
+		return false
+
+	suits.sort()  # Ensure consistent order for comparison
+	return suits == [GlobalEnums.CardSuit.BAEZEL, GlobalEnums.CardSuit.GODRIK, GlobalEnums.CardSuit.ODESSA]
+
+func calc_four_of_a_kind(fcards: Array) -> Dictionary:
+	var rank_counts = count_ranks(fcards)
+	var quad_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 4:
+			quad_rank = rank
+			break
+
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		if card_dict.rank == quad_rank:
+			scored_card_dicts.append(card_dict)
+			chips_from_cards += card_dict.chip_value
+			added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func calc_five_of_a_kind(fcards: Array) -> Dictionary:
+	var rank_counts = count_ranks(fcards)
+	var five_rank = null
+	for rank in rank_counts.keys():
+		if rank_counts[rank] == 5:
+			five_rank = rank
+			break;
+
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		if card_dict.rank == five_rank:
+			scored_card_dicts.append(card_dict)
+			chips_from_cards += card_dict.chip_value
+			added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_full_house(fcards: Array) -> bool:
+	if fcards.size() != 5:
+		return false
+	var rank_counts = count_ranks(fcards)
+	var has_three = false
+	var has_two = false
+	for count in rank_counts.values():
+		if count == 3:
+			has_three = true
+		elif count == 2:
+			has_two = true
+	return has_three and has_two
+
+func calc_full_house(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func is_flush_house(fcards: Array) -> bool:
+	return fcards.size() == 5 and is_full_house(fcards) and is_flush(fcards)
+
+func is_godriks_house(fcards: Array) -> bool:
+	return is_flush_house(fcards) and fcards[0].suit == GlobalEnums.CardSuit.GODRIK
+
+func is_baezels_house(fcards: Array) -> bool:
+	return is_flush_house(fcards) and fcards[0].suit == GlobalEnums.CardSuit.BAEZEL
+
+func is_odessas_house(fcards: Array) -> bool:
+	return is_flush_house(fcards) and fcards[0].suit == GlobalEnums.CardSuit.ODESSA
+	
+func calc_godriks_house(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func calc_baezels_house(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+func calc_odessas_house(fcards: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+	for card_dict in fcards:
+		scored_card_dicts.append(card_dict)
+		chips_from_cards += card_dict.chip_value
+		added_mult_from_cards += card_dict.mult_value
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+# IF RUN INTO A WEIRD BUG, CHECK HERE FIRST
+# vvvvvvvvvv THIS LITTLE BITCH vvvvvvvvv
+func calc_high_card(cards_played: Array) -> Dictionary:
+	var chips_from_cards = 0
+	var added_mult_from_cards = 0
+
+	if cards_played.is_empty():
+		return {"chips": 0, "added_mult": 0}
+
+	# Find the single highest-ranking card dictionary
+	var highest_card_dict = cards_played[0]
+	for i in range(1, cards_played.size()):
+		if cards_played[i].value > highest_card_dict.value:
+			highest_card_dict = cards_played[i]
+
+	# Score only that highest card
+	scored_card_dicts.append(highest_card_dict) # <<< CORRECT: Append the DICTIONARY
+	chips_from_cards += highest_card_dict.chip_value
+	added_mult_from_cards += highest_card_dict.mult_value
+
+	return {"chips": chips_from_cards, "added_mult": added_mult_from_cards}
+
+# END CALC_ AND IS_ FUNCTIONS FOR HAND-TYPES
